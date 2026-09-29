@@ -293,13 +293,13 @@ def build(subject: Path, run: Path, motion: str, out: Path, *, n_frames: int = 8
 
 
 B2CRUNNER_PYTHON = B2CRUNNER / ".venv" / "bin" / "python"
-MHR70 = Path(__file__).resolve().parents[1] / "rig" / "mhr70_mapping.npy"
 
 
 def draw_frames(body: MHRBody, mfile, params, expr, gtrans, out: Path, n_frames: int) -> None:
     """out/drawing/NNNN.png: body2colmap outline+skeleton drawings of the posed MHR body (tools/draw_control.py)."""
     from ..motion import io as MI
-    K = torch.as_tensor(np.load(MHR70), device=body.device)
+    from ..rig import mhr70
+    K = torch.as_tensor(mhr70.mapping(), device=body.device)
     V, P70 = [], []
     for i in range(0, n_frames, 16):
         j = min(i + 16, n_frames)

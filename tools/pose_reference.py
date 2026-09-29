@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-B2CRUNNER_PYTHON = Path.home() / "Projects" / "b2crunner" / ".venv" / "bin" / "python"
+B2CRUNNER_PYTHON = Path(os.environ.get("B2CRUNNER", Path.home() / "Projects" / "b2crunner")) / ".venv" / "bin" / "python"
 M_HAND = {"r": {"wrist": 42, "index": 56, "pinky": 44}, "l": {"wrist": 78, "index": 92, "pinky": 80}}
 
 
@@ -76,7 +76,8 @@ def solve(a) -> dict:
     with torch.no_grad():
         mp = mp0.clone(); mp[0, idx] = mp0[0, idx] + delta
         V, J = fwd(mp); V, J = V[0].numpy(), J[0].numpy()
-    K = np.load(ROOT / "b2crig" / "rig" / "mhr70_mapping.npy")
+    from b2crig.rig import mhr70
+    K = mhr70.mapping()
     kps = K @ np.concatenate([V, J], 0)
     for s in "rl":
         sh, el, wr = (J[JOINT[f"{s}_{k}"]] for k in ("shoulder", "elbow", "wrist"))
