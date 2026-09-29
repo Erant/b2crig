@@ -40,6 +40,14 @@ file writers and shared constants live in `b2crig/b2ctrain.py`.
 b2ctrain returns: the trained ply (`seg_label`, `open_*`, `b2c.*` header), the `.app` appearance MLP, fit-cage's
 `delta.f32` / `vis.f32` / `fit.json`, and `render --export-posed`.
 
+## What b2crig delivers
+
+One glTF file per subject in the b2c format (`~/Projects/b2cgltf/SPEC.md`; the package `b2cgltf` owns the layout
+and rules). b2crunner writes the subject file; `tools/export_gltf.py rig` enhances it in place with b2crig's cage,
+b2ctrain's binding (`render --export-binding`) and a preview skin (SPEC 5), and `tools/export_gltf.py clip` writes one
+`<name>.clip.glb` per motion: skeletal animation plus the residual from plain skinning to b2crig's posed cage (SPEC 6).
+b2crig's side of the code is `b2crig/export/gltf.py`. b2cviewer reads these files.
+
 ## Moved here from b2ctrain on 2026-09-29
 
 - **Pose containment's poses, cameras and interior mask:** `rig/contain.py`. It is a port of what the trainer did:
