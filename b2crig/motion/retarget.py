@@ -89,13 +89,18 @@ def contact_cleanup(body: MHRBody, m: MI.Motion, iters: int = 400, verbose: bool
                      (m.expr - body.expr[0].cpu().numpy()[None]).astype(np.float32), root_R=m.root_R.astype(np.float32))
     sol = walk.solve(body, ch, iters=iters, verbose=verbose)
     sol["ankle_r"], sol["ankle_l"] = anc["r"], anc["l"]
+    if m.hands:   # walk.solve leaves the hand slots alone; the fingers do not touch the feet
+        hb = (body.hand_idx - 6).cpu().numpy()
+        sol["body_params"] = np.array(sol["body_params"]); sol["body_params"][:, hb] = m.body_params[:, hb]
+        sol["hands"] = True
     return sol
 
 
 def ik_to_targets(body: MHRBody, dS: torch.Tensor, bones: tuple, Rt: torch.Tensor, orient: tuple, pel_t: np.ndarray,
                   R0: np.ndarray, fps: float, iters: int, x0: np.ndarray | None = None, verbose: bool = True,
                   neutral: bool = False, w_smooth: float = 10.0, w_twist: float = 0.0,
-                  path_joints: tuple = (JOINT["pelvis"],), radii: dict | None = None) -> MI.Motion:
+                  path_joints: tuple = (JOINT["pelvis"],), radii: dict | None = None,
+                  fingers: tuple | None = None) -> MI.Motion:
     """Per-frame IK through the differentiable MHR model: the named rotation DOFs, a root rotation (rotvec, about the
     canonical pelvis, applied after the forward; a small world-frame correction exp(delta) of the given root rotations
     R0 [T, 3, 3], so the parametrisation has no singularity however far the body turns) and a root translation (world), to unit bone directions dS [T, P, 3]
@@ -104,7 +109,10 @@ def ik_to_targets(body: MHRBody, dS: torch.Tensor, bones: tuple, Rt: torch.Tenso
     `radii` (motion/rom.capsule_radii): keep the limb capsules of rom.CHECK from interpenetrating (contact is fine) -
     a retargeted body's proportions differ, so the source's folded arms put b24be4's forearms through each other. `x0` [T, 130]: initial body-param offsets.
     `neutral`: start from and regularise towards MHR's zero pose instead of the capture pose (an arms-up capture
-    otherwise keeps its raised clavicles: lowering the arms from there moved the clavicles as much as the shoulders)."""
+    otherwise keeps its raised clavicles: lowering the arms from there moved the clavicles as much as the shoulders).
+    `fingers` = (dF [T, F, 3], (a, b, weight)): finger bone directions, like `dS`. The hand slots then become free
+    (held inside MHR's own parameter limits) and the motion animates them (`hands`); without it the fingers keep the
+    subject's canonical hands."""
     dev = body.device
     T = len(pel_t)
     ma, mb, wb = bones
@@ -117,6 +125,9 @@ def ik_to_targets(body: MHRBody, dS: torch.Tensor, bones: tuple, Rt: torch.Tenso
         for mi in ax:
             if mi is not None:
                 free[body_index(mi)] = True
+    hand_body = (body.hand_idx - 6).long()
+    if fingers is not None:
+        free[hand_body] = True
     free_idx = torch.nonzero(free).flatten()
     x = torch.zeros(T, len(free_idx), device=dev)
     if x0 is not None:
@@ -131,6 +142,11 @@ def ik_to_targets(body: MHRBody, dS: torch.Tensor, bones: tuple, Rt: torch.Tenso
     hinge = torch.as_tensor([body_index(ROT[h][2]) for h in HINGE_MIN], device=dev)
     hinge_col = torch.as_tensor([int((free_idx == i).nonzero()) for i in hinge.tolist()], device=dev)
     hinge_min = torch.as_tensor(list(HINGE_MIN.values()), device=dev) - b0[0, hinge]
+    if fingers is not None:
+        dF, (fa, fb, wf) = fingers
+        lo, hi = body.param_limits()
+        hand_col = torch.as_tensor([int((free_idx == i).nonzero()) for i in hand_body.tolist()], device=dev)
+        lo_h, hi_h = lo[hand_body + 6] - b0[0, hand_body], hi[hand_body + 6] - b0[0, hand_body]   # as offsets
     x.requires_grad_(True)
     # Root rotation = exp(delta) R0. (An absolute rotation vector breaks on a turning dancer: it wraps at |w| = pi and
     # is singular near 2 pi, where a 3 deg turn moved it by up to 6 rad; its smoothness term then spun the whole body
@@ -157,7 +173,7 @@ def ik_to_targets(body: MHRBody, dS: torch.Tensor, bones: tuple, Rt: torch.Tenso
     for it in range(iters):
         p = b0.expand(T, -1).clone()
         p[:, free_idx] = p[:, free_idx] + x
-        mp = body.model_params(p)
+        mp = body.model_params(p, hands=fingers is not None)
         _, skel = body.mhr(body.shape.expand(T, -1), mp, body.expr.expand(T, -1))
         RR = rotvec_to_mat(w) @ R0_t
         Jw = (skel[..., :3] / 100) @ body._A.T + body._t
@@ -175,6 +191,13 @@ def ik_to_targets(body: MHRBody, dS: torch.Tensor, bones: tuple, Rt: torch.Tenso
         l_twist = ((x[:, tw_col] - x_ref[tw_col]) ** 2).sum(-1).mean()
         l_hinge = (torch.relu(hinge_min - x[:, hinge_col]) ** 2).sum(-1).mean()
         l_col = torch.zeros((), device=dev)
+        l_fing = l_lim = torch.zeros((), device=dev)
+        if fingers is not None:
+            df = Jw[:, fb] - Jw[:, fa]
+            df = df / (df.norm(dim=-1, keepdim=True) + 1e-8)
+            l_fing = (((df - dF) ** 2).sum(-1) * wf).mean()
+            xh = x[:, hand_col]
+            l_lim = ((torch.relu(lo_h - xh) + torch.relu(xh - hi_h)) ** 2).sum(-1).mean()
         if radii is not None:   # min distance from 8 points on one segment to the other, per checked pair
             A_, B_ = Jw[:, sa_], Jw[:, sb_]                                      # [T, S, 3]
             P = A_[:, c1, None] + tt[:, None] * (B_[:, c1] - A_[:, c1])[:, :, None]   # [T, C, 8, 3]
@@ -183,19 +206,21 @@ def ik_to_targets(body: MHRBody, dS: torch.Tensor, bones: tuple, Rt: torch.Tenso
             dist = (P - (a2 + u[..., None] * ab)).norm(dim=-1).amin(-1)          # [T, C]
             l_col = (torch.relu(0.7 * rr - dist) ** 2).sum(-1).mean()
         loss = (l_dir + 0.5 * l_or + 30 * l_pel + w_smooth * l_s * fs + 1e-3 * l_reg + w_twist * l_twist
-                + 100 * l_hinge + 100 * l_col)
+                + 100 * l_hinge + 100 * l_col + l_fing + 100 * l_lim)
         opt.zero_grad(); loss.backward(); opt.step(); sched.step()
         if verbose and (it % 100 == 0 or it == iters - 1):
             ang = torch.rad2deg(torch.acos((d * dS).sum(-1).clamp(-1, 1)))
             print(f"ik {it:4d}: bone dir err mean {ang.mean().item():.1f} deg p95 {ang.flatten().quantile(0.95).item():.1f}  "
-                  f"orient {l_or.item():.4f}  pelvis {l_pel.sqrt().item() * 100:.1f} cm  ({time.time() - t_start:.0f}s)", flush=True)
+                  f"orient {l_or.item():.4f}  pelvis {l_pel.sqrt().item() * 100:.1f} cm"
+                  + (f"  fingers mean {torch.rad2deg(torch.acos((df * dF).sum(-1).clamp(-1, 1))).mean().item():.1f} deg"
+                     if fingers is not None else "") + f"  ({time.time() - t_start:.0f}s)", flush=True)
     with torch.no_grad():
         p = b0.expand(T, -1).clone(); p[:, free_idx] = p[:, free_idx] + x
         RR = rotvec_to_mat(w) @ R0_t
     ex = body.expr[0].cpu().numpy()[None].repeat(T, 0)
     return MI.Motion({"body_params": p.cpu().numpy().astype(np.float32), "expr": ex.astype(np.float32), "fps": fps,
                       "root_R": RR.cpu().numpy().astype(np.float32), "root_t": r.detach().cpu().numpy().astype(np.float32),
-                      "root_c": pel0.astype(np.float32)})
+                      "root_c": pel0.astype(np.float32), **({"hands": True} if fingers is not None else {})})
 
 
 def rotvec_to_mat(w: torch.Tensor) -> torch.Tensor:

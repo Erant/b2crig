@@ -9,7 +9,8 @@ Joint ids: pelvis 1, spine 34-37, neck 110, head 113, right arm 38 (clavicle)
 39 (shoulder) 40 (elbow) 41/42 (wrist), left arm 74-78, right leg 18 (hip)
 19 (knee) 20/21 (ankle) 22-24 (foot), left leg 2-8. Params 68-121 are fingers
 (held at the subject's canonical hands); 122-135 are extra hip/ankle DOFs and
-bone-length translations (never animated).
+bone-length translations (never animated). A motion animates the fingers only when it says so (motion/io.py
+`hands`, MHRBody.model_params(hands=True)).
 """
 from __future__ import annotations
 
@@ -29,6 +30,13 @@ JOINT = {"pelvis": 1, "spine0": 34, "spine1": 35, "spine2": 36, "spine3": 37, "n
          "l_clavicle": 74, "l_shoulder": 75, "l_elbow": 76, "l_wrist": 77,
          "r_hip": 18, "r_knee": 19, "r_ankle": 20, "l_hip": 2, "l_knee": 3, "l_ankle": 4}
 
+# Finger chains, knuckle (MCP) to tip; the hand hangs off r_wrist 42 / l_wrist 78. Each finger's MCP has 3 DOFs
+# (x twist, y spread, z flex), PIP and DIP flex only; the pinky's MCP sits on a fixed carpal joint (43 / 79). The
+# thumb is CMC (60: y, z), a short second CMC segment (61: x, y, z), MCP (62: z), IP (63: z), tip 64.
+FINGERS = {"r_thumb": (60, 61, 62, 63, 64), "r_index": (56, 57, 58, 59), "r_middle": (52, 53, 54, 55),
+           "r_ring": (48, 49, 50, 51), "r_pinky": (44, 45, 46, 47),
+           "l_thumb": (96, 97, 98, 99, 100), "l_index": (92, 93, 94, 95), "l_middle": (88, 89, 90, 91),
+           "l_ring": (84, 85, 86, 87), "l_pinky": (80, 81, 82, 83)}
 
 # Twist DOFs: near null spaces of bone-direction targets. With the arm straight, humeral twist
 # (shoulder.x) and forearm twist (wrist.x) turn the palm alike (+1/-1 moves it 6 deg), so an IK must pull them to

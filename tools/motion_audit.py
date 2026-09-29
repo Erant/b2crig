@@ -12,7 +12,7 @@ Per frame, on the subject's MHR mesh (not the splat cage):
            keeps it about gross violations, not the range bounds' exact values)
   collide  first capsule pair interpenetrating (rom.collides)
   pop      largest per-DOF step in rad/s (a flip or a jump the smoothness term lost)
-  track    (SMPL-X retargets: the npz's `source`) per-bone angle between the final motion and retarget_smplx's IK
+  track    (SMPL-X / Kimodo retargets: the npz's `source`; with the phalanges when it animates the fingers) per-bone angle between the final motion and retarget_smplx's IK
            targets, and the pelvis/chest/head orientation error: where the pose leaves the mocap, the IK (or the
            contact clean-up) made it up
 Stretch/crease thresholds are per region, calibrated on the synthetic ROM library (rom.py: textbook-limited poses on
@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from b2crig.motion import io as MI  # noqa: E402
 from b2crig.motion import rom  # noqa: E402
 from b2crig.rig.mhr import MHRBody  # noqa: E402
-from b2crig.rig.skeleton import JOINT, ROT, body_index  # noqa: E402
+from b2crig.rig.skeleton import FINGERS, JOINT, ROT, body_index  # noqa: E402
 
 REGION_OF = {1: "hips", 34: "abdomen", 35: "abdomen", 36: "chest", 37: "chest", 110: "neck", 113: "head",
              **{JOINT[f"{s}_{j}"]: f"{s}_{r}" for s in "rl" for j, r in (("clavicle", "shoulder"), ("shoulder", "uarm"),
@@ -151,20 +151,29 @@ def calibrate(au: "Auditor") -> tuple[np.ndarray, np.ndarray]:
 
 def tracking(body: MHRBody, p: Path, m: MI.Motion) -> dict | None:
     d = np.load(p, allow_pickle=True)
-    if "source" not in d.files or not str(d["source"]).endswith("stageii.npz"):
+    if "source" not in d.files or not Path(str(d["source"])).exists():
         return None
+    src = str(d["source"])
+    import dataclasses
     import retarget_smplx as RS
-    from b2crig.motion import smplx as SX
-    sk = SX.load_amass(str(d["source"]), fps_out=m.fps, t0=float(d["t0"]), dur=len(m) / m.fps)
+    from b2crig.motion import soma
+    if not (src.endswith("stageii.npz") or soma.is_kimodo(src)):
+        return None
+    sk = RS.load_source(src, fps_out=m.fps, t0=float(d["t0"]), dur=len(m) / m.fps)
     n = min(len(sk.joints), len(m))
-    sk = SX.Skel(sk.joints[:n], sk.rots[:n], sk.fps, sk.rest_pelvis_height, sk.rest_joints)
-    tg = RS.build_targets(body, sk, verbose=False)
+    sk = dataclasses.replace(sk, joints=sk.joints[:n], rots=sk.rots[:n])
+    tg = RS.build_targets(body, sk, verbose=False, fingers=m.hands)
     ma, mb, _ = (x.cpu().numpy() for x in tg["bones"])
+    dS = tg["dS"].cpu().numpy()
+    if tg["fingers"] is not None:   # the phalanges too
+        dF, (fa, fb, _) = tg["fingers"]
+        ma, mb = np.concatenate([ma, fa.cpu().numpy()]), np.concatenate([mb, fb.cpu().numpy()])
+        dS = np.concatenate([dS, dF.cpu().numpy()], 1)
     with torch.no_grad():
         P = MI.pose(body, m, 0, n)
     J, Rj = P.joints.cpu().numpy(), P.rots.cpu().numpy()
     dM = J[:, mb] - J[:, ma]; dM /= np.linalg.norm(dM, axis=-1, keepdims=True)
-    bone = np.degrees(np.arccos(np.clip((dM * tg["dS"].cpu().numpy()).sum(-1), -1, 1)))
+    bone = np.degrees(np.arccos(np.clip((dM * dS).sum(-1), -1, 1)))
     oj = tg["orient"][0]; Rt = tg["Rt"].cpu().numpy()
     tr = np.einsum("tkij,tkij->tk", Rj[:, oj], Rt)   # trace(Rj^T Rt)
     ori = np.degrees(np.arccos(np.clip((tr - 1) / 2, -1, 1)))
@@ -172,8 +181,8 @@ def tracking(body: MHRBody, p: Path, m: MI.Motion) -> dict | None:
     return dict(bone=bone, orient=ori, bone_names=names, orient_names=[JN.get(j, j) for j in oj])
 
 
-JN = {v: k for k, v in JOINT.items()} | {24: "r_toe", 8: "l_toe", 52: "r_mid", 88: "l_mid", 44: "r_pinky", 80: "l_pinky",
-                                          56: "r_index", 92: "l_index", 42: "r_hand", 78: "l_hand"}
+JN = {v: k for k, v in JOINT.items()} | {24: "r_toe", 8: "l_toe", 42: "r_hand", 78: "l_hand"} | \
+    {j: f"{f}{i}" for f, ch in FINGERS.items() for i, j in enumerate(ch)}
 
 
 def print_tracking(tk: dict) -> None:

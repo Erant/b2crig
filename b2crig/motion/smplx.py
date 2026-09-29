@@ -6,7 +6,7 @@ b2crig's Y-up frame (x, y, z) <- (x, z, -y).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -30,6 +30,8 @@ class Skel:
     fps: float
     rest_pelvis_height: float   # rest-pose pelvis above the soles (shaped template)
     rest_joints: np.ndarray     # [55, 3] shaped rest joints (template frame, pelvis at its template position)
+    J: dict = field(default_factory=lambda: dict(J))   # joint name -> index (these SMPL-X names; motion/soma.py maps SOMA's)
+    floor: float | None = None  # the floor height in `joints`, when the source knows it (else estimated from the feet)
 
 
 def load_model(gender: str) -> dict:

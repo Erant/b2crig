@@ -3,7 +3,7 @@
 Drives the TorchScript `mhr_model.pt` directly with the `model_params` row that
 b2crunner's `tools/export_mhr_subject` exported (docs/tools.md there has the layout). A
 motion edits the global and body slots; the hand slots keep the subject's
-canonical hands, and the 68 scales never change.
+canonical hands unless it animates them (`hands=True`), and the 68 scales never change.
 
 World frame = world_from_raw.scale * (raw * FLIP) @ R.T + t, where raw is what
 `mhr_forward` returns (MHR centimetres / 100). This is `pipeline/ply_meta.py`'s
@@ -56,15 +56,17 @@ class MHRBody:
         return self.model_params0[:, BODY]
 
     def model_params(self, body: torch.Tensor | None = None, global_rot: torch.Tensor | None = None,
-                     global_trans: torch.Tensor | None = None) -> torch.Tensor:
-        """Batched [B, 204] rows. `body` [B, 130] replaces the body slots except the hand slots;
-        `global_rot` [B, 3] (MHR xyz Euler, raw frame) and `global_trans` [B, 3] (metres, raw frame)."""
+                     global_trans: torch.Tensor | None = None, hands: bool = False) -> torch.Tensor:
+        """Batched [B, 204] rows. `body` [B, 130] replaces the body slots, except the hand slots unless `hands`
+        (the body rows animate the fingers); `global_rot` [B, 3] (MHR xyz Euler, raw frame) and `global_trans` [B, 3]
+        (metres, raw frame)."""
         B = max(x.shape[0] for x in (body, global_rot, global_trans) if x is not None) \
             if any(x is not None for x in (body, global_rot, global_trans)) else 1
         mp = self.model_params0.expand(B, -1).clone()
         if body is not None:
             mp[:, BODY] = body
-            mp[:, self.hand_idx] = self.model_params0[:, self.hand_idx]
+            if not hands:
+                mp[:, self.hand_idx] = self.model_params0[:, self.hand_idx]
         if global_rot is not None:
             mp[:, ROT] = global_rot
         if global_trans is not None:
@@ -82,8 +84,19 @@ class MHRBody:
         return Posed(verts=verts @ self._A.T + self._t, joints=coords @ self._A.T + self._t,
                      rots=self._Rw @ quat_xyzw_to_mat(quats))
 
-    def pose(self, body=None, global_rot=None, global_trans=None, expr=None) -> Posed:
-        return self.forward(self.model_params(body, global_rot, global_trans), expr)
+    def pose(self, body=None, global_rot=None, global_trans=None, expr=None, hands: bool = False) -> Posed:
+        return self.forward(self.model_params(body, global_rot, global_trans, hands), expr)
+
+    def param_limits(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """MHR's own per-parameter (min, max) [204], +-inf where it sets none."""
+        lim = self.mhr.character_torch.parameter_limits
+        lo = torch.full((204,), -float("inf"), device=self.device)
+        hi = torch.full((204,), float("inf"), device=self.device)
+        idx = lim.minmax_parameter_index.long()
+        keep = idx < 204
+        lo[idx[keep]] = lim.minmax_min[keep].to(self.device)
+        hi[idx[keep]] = lim.minmax_max[keep].to(self.device)
+        return lo, hi
 
 
 def quat_xyzw_to_mat(q: torch.Tensor) -> torch.Tensor:
