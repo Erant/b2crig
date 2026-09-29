@@ -87,8 +87,11 @@ def main() -> None:
     dp = pel - pel[:1]
     if a.smooth > 0:
         dp = gaussian_filter1d(dp, a.smooth * 1.5, axis=0, mode="nearest")
-        rv = Rotation.from_matrix(dR).as_rotvec()
-        dR = Rotation.from_rotvec(gaussian_filter1d(rv, a.smooth, axis=0, mode="nearest")).as_matrix()
+        # filter quaternions on one hemisphere (rotation vectors wrap at pi and are singular near 2 pi: filtering
+        # them across a turn spins the body)
+        q = Rotation.from_matrix(dR).as_quat()
+        q *= np.sign(np.cumprod(np.r_[1.0, np.sign((q[1:] * q[:-1]).sum(-1) + 1e-12)]))[:, None]
+        dR = Rotation.from_quat(gaussian_filter1d(q, a.smooth, axis=0, mode="nearest")).as_matrix()
     ex = body.expr[0].cpu().numpy()[None].repeat(T, 0)
     # resample to the output rate
     t_in = np.arange(T) / a.fps_in

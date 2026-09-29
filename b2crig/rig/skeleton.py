@@ -30,6 +30,16 @@ JOINT = {"pelvis": 1, "spine0": 34, "spine1": 35, "spine2": 36, "spine3": 37, "n
          "r_hip": 18, "r_knee": 19, "r_ankle": 20, "l_hip": 2, "l_knee": 3, "l_ankle": 4}
 
 
+# Twist DOFs: near null spaces of bone-direction targets. With the arm straight, humeral twist
+# (shoulder.x) and forearm twist (wrist.x) turn the palm alike (+1/-1 moves it 6 deg), so an IK must pull them to
+# neutral or they drift apart into a candy-wrapped forearm. (handle, axis index into ROT)
+TWISTS = [(f"spine{i}", 0) for i in range(4)] + [("neck", 0)] + \
+    [(f"{s}_{j}", ax) for s in "rl" for j, ax in (("clavicle", 0), ("shoulder", 0), ("wrist", 0), ("hip", 0))]
+# (Not the ankle roll: the ankle has two DOFs and the ankle->toe direction uses both; pulling one bent the other.)
+# Hinge minimums (absolute body-param values): MHR's elbow is straight at -0.6 (0 is bent ~35 deg), its knee at 0.
+HINGE_MIN = {"r_elbow": -0.75, "l_elbow": -0.75, "r_knee": -0.15, "l_knee": -0.15}
+
+
 def body_index(model_index: int) -> int:
     """Index into the 130-wide body slice for a model-param index."""
     if not 6 <= model_index < 136:

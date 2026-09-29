@@ -19,7 +19,7 @@ import numpy as np
 import torch
 
 from ..rig.mhr import MHRBody, TRANS
-from ..rig.skeleton import JOINT, ROT, body_index
+from ..rig.skeleton import HINGE_MIN, JOINT, ROT, body_index
 from .procedural import FACE_DIMS
 
 ANKLE = {"r": 20, "l": 4}
@@ -407,6 +407,8 @@ def solve(body: MHRBody, ch: Choreo, iters: int = 600, lr: float = 0.02, w_smoot
     Ainv = torch.linalg.inv(body._A)
     tr0 = body.model_params0[0, TRANS] / 10
     RR = None if ch.root_R is None else torch.as_tensor(ch.root_R, dtype=torch.float32, device=dev)
+    hinge_idx = torch.as_tensor([body_index(ROT[h][2]) for h in HINGE_MIN], device=dev)
+    hinge_min = torch.as_tensor(list(HINGE_MIN.values()), device=dev)
     opt = torch.optim.Adam([x, r], lr=lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, iters, eta_min=lr * 0.05)
     wr = {h: (torch.as_tensor(W, dtype=torch.float32, device=dev), torch.as_tensor(w, dtype=torch.float32, device=dev))
@@ -438,7 +440,10 @@ def solve(body: MHRBody, ch: Choreo, iters: int = 600, lr: float = 0.02, w_smoot
         acc = x[2:] - 2 * x[1:-1] + x[:-2]
         racc = r[2:] - 2 * r[1:-1] + r[:-2]
         l_s = (acc ** 2).sum(-1).mean() + 10 * (racc ** 2).sum(-1).mean()
-        loss = 1000 * l_feet + 300 * l_pel + l_style + 1000 * l_arm + w_smooth * l_s * fps_scale(ch.fps)
+        # hinge guard (rig/skeleton.HINGE_MIN): planting a foot the leg cannot quite reach bent the knee backwards
+        # (retargeted flamenco: -0.49 rad from an IK result that stayed above -0.15)
+        l_hinge = (torch.relu(hinge_min - p[:, hinge_idx]) ** 2).sum(-1).mean()
+        loss = 1000 * l_feet + 300 * l_pel + l_style + 1000 * l_arm + w_smooth * l_s * fps_scale(ch.fps) + 1000 * l_hinge
         opt.zero_grad(); loss.backward(); opt.step(); sched.step()
         if verbose and (it % 100 == 0 or it == iters - 1):
             print(f"ik {it:4d}: feet {math.sqrt(l_feet.item() / 2) * 100:.2f} cm  pelvis {math.sqrt(l_pel.item()) * 100:.2f} cm  "

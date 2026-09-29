@@ -11,7 +11,7 @@ Axis semantics (probed on MHR 2026-09-29; same sign on both sides unless noted):
   clavicle  x axial rotation, y elevation (+: shrug), z protraction (+: forward)
   wrist x/y/z, ankle x/y, neck x, clavicle x: not probed; ranges are textbook magnitudes, signs unverified
   shoulder  x humeral twist, y abduction (+: arm out/up, 0 = A pose), z flexion (+: arm forward/up)
-  elbow z / knee z  flexion (+)
+  elbow z / knee z  flexion (+); MHR's elbow at 0 is bent ~35 deg (straight at -0.6), its knee is straight at 0
   hip       x twist, y adduction (+: across the midline, -: out to the side), z flexion (-: leg forward)
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ RANGES = {
     **{f"{s}_{j}": r for s in "rl" for j, r in (
         ("clavicle.x", (-0.8, 0.4)), ("clavicle.y", (-0.2, 0.55)), ("clavicle.z", (-0.5, 0.4)),
         ("shoulder.x", (-1.1, 1.1)), ("shoulder.y", (-0.8, 2.3)), ("shoulder.z", (-0.8, 2.6)),
-        ("elbow.z", (-0.1, 2.4)), ("wrist.x", (-1.1, 0.8)), ("wrist.y", (-0.4, 0.6)), ("wrist.z", (-1.0, 1.0)),
+        ("elbow.z", (-0.6, 2.4)), ("wrist.x", (-1.1, 0.8)), ("wrist.y", (-0.4, 0.6)), ("wrist.z", (-1.0, 1.0)),
         ("hip.x", (-0.6, 0.6)), ("hip.y", (-0.8, 0.35)), ("hip.z", (-2.0, 0.35)),
         ("knee.z", (-0.1, 2.3)), ("ankle.x", (-0.7, 0.3)), ("ankle.y", (-0.6, 0.6)))},
 }

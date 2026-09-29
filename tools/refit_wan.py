@@ -95,14 +95,13 @@ def main() -> None:
     print(f"refit_wan: {T} frames; WAN pose vs the clip's own: bone dir diff mean {err0.mean():.1f} deg "
           f"(p95 {np.percentile(err0, 95):.1f}), pelvis {np.linalg.norm(pel_t - Jm[:, pj], axis=1).mean() * 100:.1f} cm")
     dev = body.device
-    w0 = Rotation.from_matrix(m.root_R).as_rotvec()
     x0 = m.body_params - body.body0[0].cpu().numpy()[None]
     mo = ik_to_targets(body, torch.as_tensor(dT, dtype=torch.float32, device=dev),
                        (torch.as_tensor(ia, device=dev), torch.as_tensor(ib, device=dev),
                         torch.as_tensor([b[2] for b in bl], dtype=torch.float32, device=dev)),
                        torch.as_tensor(Rt, dtype=torch.float32, device=dev),
                        (oj, torch.as_tensor([o[1] for o in ORIENT], dtype=torch.float32, device=dev)),
-                       pel_t, w0, m.fps, a.iters, x0=x0)
+                       pel_t, m.root_R, m.fps, a.iters, x0=x0)
     mo.expr = m.expr
     sol = contact_cleanup(body, mo, iters=a.cleanup_iters) if a.cleanup_iters > 0 else {**mo.save_fields(), "root_world": mo.root_t}
     np.savez(clip / "refit_motion.npz", **sol)
