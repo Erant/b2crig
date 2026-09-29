@@ -1,12 +1,13 @@
 """b2crig's steps on the b2c glTF files (~/Projects/b2cgltf/SPEC.md; b2crig/export/gltf.py).
 
-    .venv/bin/python tools/export_gltf.py rig work/<s> [--subject work/<s>/gltf/scene.glb] [--splat PLY] [--out OUT]
+    .venv/bin/python tools/export_gltf.py rig work/<s> [--subject RUN/ply/scene.glb] [--splat PLY] [--out OUT]
     .venv/bin/python tools/export_gltf.py clip work/<s> MOTION.npz[:NAME] ... [--subject RIGGED.glb] [--no-residual]
         [--check-cage NAME=CAGE ...]
     .venv/bin/python tools/export_gltf.py validate FILE ...
 
-rig: enhances b2crunner's subject file (default work/<s>/gltf/scene.glb, written by b2crunner's export_glb) with
-b2crig's rig, in place unless --out. --splat rigs a splat b2crig retrained (it supersedes the delivered one).
+rig: enhances b2crunner's unrigged subject file (default: the run's ply/scene.glb, the run from work/subjects.json;
+written by b2crunner) with b2crig's rig into work/<s>/gltf/scene.glb (or --out), so it can be re-run. --splat rigs a
+splat b2crig retrained (it supersedes the delivered one).
 clip: writes work/<s>/gltf/<name>.clip.glb per motion. --check-cage compares b2crig's posed cage with an existing
 clip cage file. validate: the Khronos validator check of SPEC 8 (B2C_GLTF_VALIDATOR).
 """
@@ -36,8 +37,11 @@ v = sub.add_parser("validate"); v.add_argument("files", nargs="+", type=Path)
 a = ap.parse_args()
 
 if a.cmd == "rig":
-    subj = a.subject or a.subject_dir / "gltf" / "scene.glb"
-    print(json.dumps(gltf.rig(subj, a.subject_dir, a.out or subj, splat_ply=a.splat), indent=1))
+    run = Path(json.loads((a.subject_dir.parent / "subjects.json").read_text())[a.subject_dir.name])
+    subj = a.subject or run / "ply" / "scene.glb"
+    out = a.out or a.subject_dir / "gltf" / "scene.glb"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    print(json.dumps(gltf.rig(subj, a.subject_dir, out, splat_ply=a.splat), indent=1))
 elif a.cmd == "clip":
     subj = a.subject or a.subject_dir / "gltf" / "scene.glb"
     checks = dict(s.split("=", 1) for s in a.check_cage)

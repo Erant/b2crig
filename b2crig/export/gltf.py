@@ -122,10 +122,15 @@ def rig(subject_glb: Path, S: Path, out: Path, *, splat_ply: Path | None = None,
 
 
 def render_inputs(subject_glb: Path, clip_glb: Path | None, frame: int, out: Path, *, residual: bool = True
-                  ) -> tuple[Path, Path, dict]:
+                  ) -> tuple[Path, Path | None, dict]:
     """b2ctrain's inputs for one frame of a clip file (None = the rest pose): the current splat as a trainer PLY and a
-    one-frame .b2ccage (SPEC 7.2 steps 1-2), written to out/. Returns (ply, cage, the rig's render settings)."""
+    one-frame .b2ccage (SPEC 7.2 steps 1-2), written to out/. Returns (ply, cage, the rig's render settings); a subject
+    b2crig has not rigged gives no cage (the splat renders as delivered)."""
     doc = b2cgltf.load(subject_glb)
+    out.mkdir(parents=True, exist_ok=True)
+    write_ply(out / "splat.ply", read.to_trainer_ply_fields(read.splat(doc, read.current_splat(doc))))
+    if doc.extension(GR.RIG) is None:
+        return out / "splat.ply", None, {}
     cg = GR.cage(doc)
     V = cg.verts
     if clip_glb is not None:
@@ -136,8 +141,6 @@ def render_inputs(subject_glb: Path, clip_glb: Path | None, frame: int, out: Pat
         e = (c.json["animations"][0].get("extensions") or {}).get(GC.RES)
         if residual and e:
             V = V + c.accessor(e["accessor"], normalized=True).reshape(e["frames"], e["vertices"], 3)[frame] * e["scale"]
-    out.mkdir(parents=True, exist_ok=True)
-    write_ply(out / "splat.ply", read.to_trainer_ply_fields(read.splat(doc, read.current_splat(doc))))
     layers = [B.CageLayer(m["name"], cg.verts[m["vertexOffset"]:m["vertexOffset"] + m["vertexCount"]],
                           cg.faces[m["faceOffset"]:m["faceOffset"] + m["faceCount"]] - m["vertexOffset"], m["classes"])
               for m in cg.layers]

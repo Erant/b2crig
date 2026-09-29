@@ -65,7 +65,7 @@ ply, cage, _ = render_inputs(work / m["subject_file"], work / m["clip_file"] if 
 cam = {**m["camera"], "name": f"{m['frame']:04d}"}   # the name of render_inputs' one cage frame
 (tmp / "cams.json").write_text(json.dumps({"width": m["width"], "height": m["height"], "cameras": [cam]}))
 common = ["--sh-degree", str(opt.get("degree", 3))]
-if opt.get("fade") and opt["fade"][1] > opt["fade"][0] > 0:
+if cage and opt.get("fade") and opt["fade"][1] > opt["fade"][0] > 0:
     common += ["--cage-fade-start", str(opt["fade"][0]), "--cage-fade-end", str(opt["fade"][1])]
 bg = tuple(opt.get("bg", [0.5, 0.5, 0.5]))
 cols = [cv2.imread(str(shot))]
@@ -75,8 +75,8 @@ for k, sp in enumerate([ply] + a.splat):
     od = tmp / f"r{k}"
     growth = opt.get("maxGrowth") or B.CAGE_MAX_GROWTH
     subprocess.run([str(B.B2CTRAIN), "render", "--splat", str(sp), "--cameras", str(tmp / "cams.json"), "--output-dir", str(od),
-                    "--background", ",".join(f"{x:g}" for x in bg), "--cage", str(cage), "--cage-max-growth", f"{growth:g}",
-                    *common, *a.extra.split()], check=True, stdout=subprocess.DEVNULL)
+                    "--background", ",".join(f"{x:g}" for x in bg),
+                    *(["--cage", str(cage), "--cage-max-growth", f"{growth:g}"] if cage else []), *common, *a.extra.split()], check=True, stdout=subprocess.DEVNULL)
     x = cv2.imread(str(next(od.glob("*.png"))), cv2.IMREAD_UNCHANGED).astype(np.float32)
     if x.shape[2] == 4:
         al = x[..., 3:] / 255
