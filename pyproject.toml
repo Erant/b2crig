@@ -1,0 +1,27 @@
+[project]
+name = "b2crig"
+version = "0.1.0"
+description = "Animate b2crunner human splats: MHR/cage rigging, WAN 2.2 VACE clip generation, and a motion-to-deformation model"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2",
+  "scipy",
+  "torch==2.14.0",
+  "plyfile",
+  "pytest",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["b2crig*"]
