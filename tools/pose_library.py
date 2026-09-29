@@ -3,7 +3,11 @@
 
     .venv/bin/python tools/pose_library.py work/<subject> rand1 rand2 hold_rand1 ... [--device cpu]
 -> <subject>/clips/lib_<motion>/cage.b2ccage
+
+`rom[:N]` is the static range-of-motion library (b2crig/motion/rom.py: the named poses, their mirrors and N random
+extreme poses, default 1500), one frame per pose, self-colliding poses dropped; poses.json holds the joint angles.
 """
+import json
 import argparse
 import sys
 from pathlib import Path
@@ -13,7 +17,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from b2crig import b2ctrain as B  # noqa: E402
-from b2crig.motion import procedural  # noqa: E402
+from b2crig.motion import procedural, rom  # noqa: E402
 from b2crig.rig import layered  # noqa: E402
 from b2crig.rig.mhr import MHRBody  # noqa: E402
 
@@ -22,10 +26,43 @@ ap.add_argument("subject", type=Path)
 ap.add_argument("motions", nargs="+")
 ap.add_argument("--frames", type=int, default=81)
 ap.add_argument("--device", default="cpu")
+ap.add_argument("--seed", type=int, default=0)
 a = ap.parse_args()
 body = MHRBody(a.subject / "mhr.npz", device=a.device); lay = layered.load_layers(a.subject)
 
+
+def rom_clip(n_random: int):
+    poses = rom.named_poses()
+    rng = np.random.default_rng(a.seed)
+    for i in range(n_random):
+        poses[f"rand{i:04d}"] = rom.random_pose(rng)
+    P0 = body.pose(rom.to_body({}, body.body0))
+    radii = rom.capsule_radii(P0.verts[0].cpu().numpy(), P0.joints[0].cpu().numpy(), body.skin)
+    names, dropped, chunks = list(poses), {}, []
+    keep = []
+    for i in range(0, len(names), 16):
+        nb = names[i:i + 16]
+        P = body.pose(torch.cat([rom.to_body(poses[n], body.body0) for n in nb]))
+        for n, J in zip(nb, P.joints.cpu().numpy()):
+            hit = rom.collides(J, radii)
+            (dropped.__setitem__(n, hit) if hit else keep.append(n))
+        ok = [j for j, n in enumerate(nb) if n not in dropped]
+        if ok:
+            chunks.append(layered.pose_layers(body, body.forward(body.model_params(
+                torch.cat([rom.to_body(poses[nb[j]], body.body0) for j in ok]))), lay).cpu().numpy())
+    named = [n for n in dropped if not n.startswith("rand")]
+    print(f"rom: {len(keep)} poses kept, {len(dropped)} self-colliding dropped"
+          + (f" (named: {', '.join(f'{n}:{dropped[n]}' for n in named)})" if named else ""))
+    out = a.subject / "clips" / "lib_rom"; out.mkdir(parents=True, exist_ok=True)
+    B.write_cage(out / "cage.b2ccage", layered.cage_layers(body, lay), np.concatenate(chunks), keep)
+    (out / "poses.json").write_text(json.dumps({n: poses[n] for n in keep}, indent=0))
+    print(f"pose_library: {out}")
+
+
 for mn in a.motions:
+    if mn.split(":")[0] == "rom":
+        rom_clip(int(mn.split(":")[1]) if ":" in mn else 1500)
+        continue
     mot = procedural.get(mn)
     params = body.body0 + torch.as_tensor(mot.offsets(a.frames, 16.0), device=body.device)
     expr = body.expr + torch.as_tensor(mot.expr_offsets(a.frames, 16.0), device=body.device)
