@@ -65,3 +65,32 @@ def test_hands_flag_poses_the_fingers():
     J0 = body.pose(p).joints
     moved = (J - J0).norm(dim=-1)[0]
     assert moved[FINGERS["r_index"][-1]] > 5e-3 and moved[1] < 1e-6   # fingertips move, the pelvis does not
+
+
+@needs_subject
+def test_finger_handles_match_mhr():
+    """rig/skeleton.FINGER_ROT: every hand param, each on the joint and axis MHR's parameter transform drives."""
+    from b2crig.rig.mhr import MHRBody
+    from b2crig.rig.skeleton import FINGER_JOINT, FINGER_ROT
+    body = MHRBody(SUBJECT)
+    PT = body.mhr.character_torch.parameter_transform.parameter_transform.cpu().numpy()
+    seen = []
+    for h, axes in FINGER_ROT.items():
+        for ax, p in enumerate(axes):
+            if p is not None:
+                assert abs(PT[FINGER_JOINT[h] * 7 + 3 + ax, p] - 1) < 1e-6, (h, ax, p)
+                seen.append(p)
+    assert sorted(seen) == sorted(body.hand_idx.tolist())
+
+
+def test_hand_poses_set_whole_hands():
+    import torch
+    from b2crig.motion import rom
+    from b2crig.rig.skeleton import FINGER_ROT, body_index
+    b0 = torch.full((1, 130), 0.5)
+    p = rom.to_body(rom._hand("r", 1.0), b0)
+    r_idx = [body_index(i) for h, v in FINGER_ROT.items() if h[0] == "r" for i in v if i is not None]
+    l_idx = [body_index(i) for h, v in FINGER_ROT.items() if h[0] == "l" for i in v if i is not None]
+    assert (p[0, l_idx] == 0.5).all()                      # the unnamed hand keeps the canonical one
+    assert (p[0, r_idx] != 0.5).all()                      # the named hand is set whole
+    assert all(len(v) for v in rom.hand_poses().values())

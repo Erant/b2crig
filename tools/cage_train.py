@@ -60,6 +60,15 @@ ap.add_argument("--contain-res", type=int, default=960, help="long side of the c
 ap.add_argument("--contain-depth", type=float, default=0.02, help="splats more than this (m) inside the body do not "
                 "define the containment silhouette")
 ap.add_argument("--contain-fraction", type=float, default=0.65)
+ap.add_argument("--background", default="0.5,0.5,0.5:0.5", help="training background COLOR:NOISE (b2ctrain "
+                "--background-color / --background-noise-strength). Default = b2crunner's random_background, which its final "
+                "training uses: against b2ctrain's near-black default (0,0,0:0.1) a soft silhouette edge is fitted by opaque "
+                "DARK splats (dark streaks on the tops of raised arms), so a fine-tune on black puts them back")
+ap.add_argument("--grow", action="store_true", help="let b2ctrain grow and screen-size-split splats (off by default: "
+                "the warm start is b2crunner's culled splat, and growth refills what the culling removed; hand close-ups "
+                "alone split ~38k body splats)")
+ap.add_argument("--contain-hands", type=float, default=0.0, help="share of the containment views that are hand close-ups "
+                "(b2crig/rig/contain.py), for finger poses (pose_library --hands)")
 a = ap.parse_args(argv[:argv.index("--")] if "--" in argv else argv)
 assert a.train or a.contain, "nothing to train on: --train and/or --contain"
 S = a.subject.resolve(); run = Path(json.loads((S.parent / "subjects.json").read_text())[S.name]); cap = run / "colmap"
@@ -188,7 +197,9 @@ if a.contain:   # the containment views and the interior mask are ours to choose
     from b2crig.rig import contain
     extra = ["--pose-contain-weight", str(a.contain_weight), "--pose-contain-fraction", str(a.contain_fraction),
              *contain.write_contain(out, evaluate.read_cage(out / "cage.b2ccage"), (a.init or run / "ply" / "scene.ply").resolve(), cap,
-                                    n=a.contain_views, res=a.contain_res, depth=a.contain_depth)] + extra
+                                    n=a.contain_views, res=a.contain_res, depth=a.contain_depth,
+                                    hands=contain.hand_vertices(S / "mhr.npz") if a.contain_hands > 0 else None,
+                                    hand_views=a.contain_hands)] + extra
 if "--cage-open" in extra:   # two-state splats: the opening gate goes into the cage (b2crig/rig/open_gate.py)
     from b2crig.rig import open_gate
     open_gate.add_open_gate(out / "cage.b2ccage")
@@ -202,7 +213,9 @@ if a.hollow > 0:   # the canonical body as the hollow proxy; the trainer poses i
              "--mesh", str(ds / "mesh.ply")] + extra
 subprocess.run([str(B.B2CTRAIN), str(ds), "--cage", str(out / "cage.b2ccage"), "--cage-max-growth", f"{B.CAGE_MAX_GROWTH:g}", "--total-train-iters", str(a.iters),
                 "--export-path", str(out), "--export-name", "scene.ply", "--export-every", str(a.iters),
-                "--sh-degree", "3", "--max-resolution", "1920", *extra], check=True, stdout=open(out / "train.log", "w"), stderr=subprocess.STDOUT)
+                "--sh-degree", "3", "--max-resolution", "1920", "--background-color", a.background.split(":")[0],
+                "--background-noise-strength", a.background.split(":")[1],
+                *([] if a.grow else ["--growth-stop-iter", "0", "--split-at-screen-size", "0"]), *extra], check=True, stdout=open(out / "train.log", "w"), stderr=subprocess.STDOUT)
 new = out / "scene.ply"; old = run / "ply" / "scene.ply"
 
 

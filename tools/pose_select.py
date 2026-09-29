@@ -7,6 +7,9 @@ Every pool frame deforms each body-layer triangle by some amount d = max |log pr
 triangle (the shear/stretch that exposes the interior). Greedy max coverage picks frames one at a time to maximise
 sum_t area_t * max_{f in set} d_t(f): each body region gets the most extreme deformation the pool has for it, and a
 frame that repeats what the set already covers adds nothing. Coverage is reported as a fraction of the whole pool's.
+The hands are ~4% of the body's area, so by area alone finger poses would never be picked: `--hand-share` (default
+0.15) scales the hand triangles (rig/contain.hand_vertices) to that share of the weight; body and hand coverage are
+reported apart.
 Writes <subject>/clips/poseset_<tag>/cage.b2ccage (frames named <clip>__<frame>) and poses.json.
 """
 import argparse
@@ -18,6 +21,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from b2crig import evaluate  # noqa: E402
+from b2crig.rig.contain import hand_vertices  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("subject", type=Path)
@@ -26,6 +30,7 @@ ap.add_argument("--k", type=int, default=16)
 ap.add_argument("--every", type=int, default=3)
 ap.add_argument("--tag", default="")
 ap.add_argument("--curve", default="4,8,16,32,64")
+ap.add_argument("--hand-share", type=float, default=0.15, help="share of the coverage weight on the hand triangles (0: by area)")
 a = ap.parse_args()
 S = a.subject
 
@@ -56,7 +61,15 @@ for spec in a.clips:
         D.append(np.abs(np.log(np.clip(s, 1e-3, None))).max(-1).astype(np.float32))
         names.append(f"{c}__{cg.names[fi]}"); posed.append(cg.posed[fi])
 D = np.stack(D)   # [frames, T]
+hv = hand_vertices(S / "mhr.npz")
+hand = np.isin(BF, np.concatenate([hv["r"], hv["l"]])).all(1)
+if a.hand_share > 0 and hand.any():
+    w_h = a.hand_share / (1 - a.hand_share) * area[~hand].sum() / area[hand].sum()
+    print(f"hands: {hand.sum()} triangles, {area[hand].sum() / area.sum() * 100:.1f}% of the area, weighted x{w_h:.1f} "
+          f"to {a.hand_share:.0%} of the coverage")
+    area = np.where(hand, area * w_h, area)
 full = (area * D.max(0)).sum()
+cov = lambda cur, m: (area[m] * cur[m]).sum() / max((area[m] * D.max(0)[m]).sum(), 1e-12)
 print(f"pool: {len(D)} frames from {len(a.clips)} clips, {D.shape[1]} body triangles; median per-triangle max stretch "
       f"{np.exp(np.median(D.max(0))):.2f}x, frame means {np.exp(D.mean(1).min()):.3f}-{np.exp(D.mean(1).max()):.3f}x")
 cur = np.zeros(D.shape[1], np.float32); sel = []
@@ -65,12 +78,13 @@ for k in range(min(kmax, len(D))):
     gain = (area * np.maximum(D - cur, 0)).sum(1)
     j = int(gain.argmax()); sel.append(j); cur = np.maximum(cur, D[j])
     if str(k + 1) in a.curve.split(",") or k + 1 == a.k:
-        print(f"  k={k + 1:3d}: coverage {(area * cur).sum() / full:.3f}")
+        print(f"  k={k + 1:3d}: coverage {(area * cur).sum() / full:.3f} (body {cov(cur, ~hand):.3f}, hands {cov(cur, hand):.3f})")
 sel = sel[:a.k]
 print("picked: " + ", ".join(names[j] for j in sel))
 out = S / "clips" / f"poseset_{a.tag or a.k}"; out.mkdir(parents=True, exist_ok=True)
 evaluate.write_cage_like(evaluate.Cage(cg0.layers, cg0.verts, cg0.faces, [names[j] for j in sel], None), out / "cage.b2ccage",
                          np.stack([posed[j] for j in sel]))
 (out / "poses.json").write_text(json.dumps({"pool": a.clips, "every": a.every, "frames": [names[j] for j in sel],
-                                            "coverage": float((area * cur).sum() / full)}, indent=1))
+                                            "coverage": float((area * cur).sum() / full), "hand_share": a.hand_share,
+                                            "coverage_body": float(cov(cur, ~hand)), "coverage_hands": float(cov(cur, hand))}, indent=1))
 print(f"pose_select: {out / 'cage.b2ccage'}")

@@ -13,12 +13,19 @@ Axis semantics (probed on MHR 2026-09-29; same sign on both sides unless noted):
   shoulder  x humeral twist, y abduction (+: arm out/up, 0 = A pose), z flexion (+: arm forward/up)
   elbow z / knee z  flexion (+); MHR's elbow at 0 is bent ~35 deg (straight at -0.6), its knee is straight at 0
   hip       x twist, y adduction (+: across the midline, -: out to the side), z flexion (-: leg forward)
+  fingers   (rig/skeleton.FINGER_ROT) MCP y spread (+: towards the thumb, both hands alike; probed
+            2026-09-29), z flexion (+: curl, MHR's own limits run -0.78..1.57), PIP / DIP
+            z flexion; thumb CMC y/z, second CMC x/y/z, MCP z, IP z (signs of the thumb's CMC axes not probed)
+
+Finger poses (FINGER_RANGES, HAND_SHAPES, random_hand) need posing with hands=True (MHRBody.pose): a pose that names
+any finger DOF of a hand sets that whole hand (the rest of it straight, at MHR zero); a hand it does not name keeps the
+subject's canonical hand.
 """
 from __future__ import annotations
 
 import numpy as np
 
-from ..rig.skeleton import ROT, body_index
+from ..rig.skeleton import FINGER_ROT, ROT, body_index
 
 AXES = {"x": 0, "y": 1, "z": 2}
 
@@ -34,6 +41,15 @@ RANGES = {
         ("hip.x", (-0.6, 0.6)), ("hip.y", (-0.8, 0.35)), ("hip.z", (-2.0, 0.35)),
         ("knee.z", (-0.1, 2.3)), ("ankle.x", (-0.7, 0.3)), ("ankle.y", (-0.6, 0.6)))},
 }
+# Finger ranges: textbook active ROM, inside MHR's parameter limits.
+FINGER_RANGES = {}
+for _s in "rl":
+    for _f in ("index", "middle", "ring", "pinky"):
+        FINGER_RANGES |= {f"{_s}_{_f}_mcp.y": (-0.3, 0.3), f"{_s}_{_f}_mcp.z": (-0.35, 1.57),
+                          f"{_s}_{_f}_pip.z": (0.0, 1.57), f"{_s}_{_f}_dip.z": (0.0, 1.3)}
+    FINGER_RANGES |= {f"{_s}_thumb_cmc.y": (-0.8, 0.8), f"{_s}_thumb_cmc.z": (-0.8, 0.8),
+                      f"{_s}_thumb_cmc2.x": (-0.4, 0.4), f"{_s}_thumb_cmc2.y": (-0.4, 0.4), f"{_s}_thumb_cmc2.z": (-0.2, 0.9),
+                      f"{_s}_thumb_mcp.z": (-0.2, 1.2), f"{_s}_thumb_ip.z": (-0.3, 1.4)}
 GROUPS = {
     "legs": [k for k in RANGES if k[2:5] in ("hip", "kne", "ank")],
     "arms": [k for k in RANGES if k[2:5] in ("sho", "elb", "cla", "wri")],
@@ -108,6 +124,58 @@ NAMED = {
 }
 
 
+def _hand(side: str, curl: dict | float, spread: float = 0.0, thumb: dict | None = None, mcp: float = 1.45) -> dict:
+    """One hand's finger DOFs: per finger a curl c (1 = fist, 0 = straight, < 0 = MCP hyperextension) split over the
+    MCP / PIP / DIP like a natural grip (`mcp` = 0: a claw, knuckles flat); `spread` > 0 fans the fingers out from the
+    middle (< 0 closes them onto each other); `thumb` = {"cmc.y": ..}."""
+    out = {}
+    for f, fan in (("index", 1.0), ("middle", 0.3), ("ring", -0.3), ("pinky", -1.0)):   # mcp.y +: towards the thumb
+        c = curl if isinstance(curl, (int, float)) else curl.get(f, 0.0)
+        for key, v in (("mcp.z", c * mcp if c > 0 else c * 1.45), ("pip.z", max(c, 0.0) * 1.55),
+                       ("dip.z", max(c, 0.0) * 1.2), ("mcp.y", spread * fan)):
+            lo, hi = FINGER_RANGES[f"{side}_{f}_{key}"]
+            out[f"{side}_{f}_{key}"] = float(np.clip(v, lo, hi))
+    for k, v in (thumb or {}).items():
+        lo, hi = FINGER_RANGES[f"{side}_thumb_{k}"]
+        out[f"{side}_thumb_{k}"] = float(np.clip(v, lo, hi))
+    return out
+
+
+# Hand shapes, each shown on both hands with the arms where the views see them.
+HAND_SHAPES = {
+    "fist": dict(curl=1.0, thumb={"cmc.z": 0.5, "cmc2.z": 0.6, "mcp.z": 0.9, "ip.z": 0.9}),
+    "open_spread": dict(curl=-0.2, spread=0.3, thumb={"cmc.y": -0.6, "cmc.z": -0.4}),
+    "point": dict(curl={"index": 0.0, "middle": 1.0, "ring": 1.0, "pinky": 1.0}, thumb={"cmc.z": 0.4, "mcp.z": 0.8, "ip.z": 0.6}),
+    "claw": dict(curl=1.0, mcp=0.0, spread=0.2, thumb={"cmc.y": -0.3, "ip.z": 1.2}),
+    "relaxed": dict(curl=0.35, thumb={"cmc.z": 0.2, "mcp.z": 0.3, "ip.z": 0.3}),
+    "pinch": dict(curl={"index": 0.55, "middle": 0.2, "ring": 0.25, "pinky": 0.3}, thumb={"cmc.y": 0.5, "cmc.z": 0.6, "cmc2.z": 0.6, "mcp.z": 0.4, "ip.z": 0.3}),
+    "thumbs_up": dict(curl=1.0, thumb={"cmc.y": -0.5, "cmc.z": -0.5}),
+    "peace": dict(curl={"index": 0.0, "middle": 0.0, "ring": 1.0, "pinky": 1.0}, spread=0.3, thumb={"cmc.z": 0.5, "mcp.z": 0.9, "ip.z": 0.8}),
+}
+HAND_ARMS = {"sides": {}, "forward": {**_both(shoulder_z=1.4, elbow_z=0.6)}, "t": {**_both(shoulder_y=0.85)},
+             "up": {**_both(shoulder_y=2.1, elbow_z=0.4)}}
+
+
+def hand_poses() -> dict[str, dict]:
+    """Every hand shape on both hands, with the arms at the sides / forward / out / up."""
+    out = {}
+    for hn, h in HAND_SHAPES.items():
+        kw = dict(h)
+        for an, arms in HAND_ARMS.items():
+            out[f"hand_{hn}_{an}"] = {**arms, **_hand("r", **kw), **_hand("l", **kw)}
+    return out
+
+
+def random_hand(rng: np.random.Generator, side: str) -> dict:
+    """A random hand: per-finger curls towards their extremes, a spread and a random thumb."""
+    curl = {f: float(-0.25 + 1.25 * rng.beta(0.6, 0.6)) for f in ("index", "middle", "ring", "pinky")}
+    if rng.random() < 0.5:   # fingers usually move together
+        c = float(-0.25 + 1.25 * rng.beta(0.6, 0.6)); curl = {f: float(np.clip(c + rng.normal(0, 0.12), -0.25, 1.0)) for f in curl}
+    thumb = {k.split("_thumb_")[1]: float(lo + (hi - lo) * rng.beta(0.8, 0.8))
+             for k, (lo, hi) in FINGER_RANGES.items() if k.startswith(f"{side}_thumb_")}
+    return _hand(side, curl, float(rng.uniform(-0.08, 0.3)), thumb)   # closing the fingers soon overlaps them
+
+
 def named_poses() -> dict[str, dict]:
     out = {}
     for n, p in NAMED.items():
@@ -143,9 +211,16 @@ def to_body(pose: dict, body0) -> "torch.Tensor":
         for i in v:
             if i is not None:
                 p[0, body_index(i)] = 0.0
+    for side in "rl":   # a hand the pose names is set whole (straight at MHR zero, then the named DOFs)
+        if any(k.split(".")[0] in FINGER_ROT and k[0] == side for k in pose):
+            for h, v in FINGER_ROT.items():
+                if h[0] == side:
+                    for i in v:
+                        if i is not None:
+                            p[0, body_index(i)] = 0.0
     for k, val in pose.items():
         h, ax = k.split(".")
-        p[0, body_index(ROT[h][AXES[ax]])] = val
+        p[0, body_index((ROT[h] if h in ROT else FINGER_ROT[h])[AXES[ax]])] = val
     return p
 
 

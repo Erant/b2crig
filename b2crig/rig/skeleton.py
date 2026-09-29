@@ -37,6 +37,24 @@ FINGERS = {"r_thumb": (60, 61, 62, 63, 64), "r_index": (56, 57, 58, 59), "r_midd
            "r_ring": (48, 49, 50, 51), "r_pinky": (44, 45, 46, 47),
            "l_thumb": (96, 97, 98, 99, 100), "l_index": (92, 93, 94, 95), "l_middle": (88, 89, 90, 91),
            "l_ring": (84, 85, 86, 87), "l_pinky": (80, 81, 82, 83)}
+# Finger joint handles (x, y, z) -> model-param indices, like ROT: MCP x twist (tiny range), y spread, z flexion (+:
+# curl); PIP / DIP flexion only. Thumb: CMC y, z (60/96), second CMC x, y, z (61/97), MCP z (62/98), IP z (63/99).
+FINGER_ROT = {}
+for _s, _fingers, _thumb in (
+        ("r", {"index": (91, 75, 79, 80, 81), "middle": (94, 78, 82, 83, 84), "ring": (92, 76, 85, 86, 87),
+               "pinky": (93, 77, 88, 89, 90)}, (68, 69, 70, 71, 72, 73, 74)),
+        ("l", {"index": (118, 102, 106, 107, 108), "middle": (121, 105, 109, 110, 111), "ring": (119, 103, 112, 113, 114),
+               "pinky": (120, 104, 115, 116, 117)}, (95, 96, 97, 98, 99, 100, 101))):
+    for _f, (_x, _y, _z, _pip, _dip) in _fingers.items():
+        FINGER_ROT |= {f"{_s}_{_f}_mcp": (_x, _y, _z), f"{_s}_{_f}_pip": (None, None, _pip),
+                       f"{_s}_{_f}_dip": (None, None, _dip)}
+    _cy, _cz, _c2x, _c2y, _c2z, _mcp, _ip = _thumb
+    FINGER_ROT |= {f"{_s}_thumb_cmc": (None, _cy, _cz), f"{_s}_thumb_cmc2": (_c2x, _c2y, _c2z),
+                   f"{_s}_thumb_mcp": (None, None, _mcp), f"{_s}_thumb_ip": (None, None, _ip)}
+# the joint each handle rotates (for checks against MHR's parameter transform)
+FINGER_JOINT = {f"{s}_{f}_{j}": FINGERS[f"{s}_{f}"][i] for s in "rl" for f in ("index", "middle", "ring", "pinky")
+                for i, j in enumerate(("mcp", "pip", "dip"))} | \
+               {f"{s}_thumb_{j}": FINGERS[f"{s}_thumb"][i] for s in "rl" for i, j in enumerate(("cmc", "cmc2", "mcp", "ip"))}
 
 # Twist DOFs: near null spaces of bone-direction targets. With the arm straight, humeral twist
 # (shoulder.x) and forearm twist (wrist.x) turn the palm alike (+1/-1 moves it 6 deg), so an IK must pull them to
