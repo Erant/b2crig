@@ -20,8 +20,7 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(Path.home() / "Projects" / "b2crunner"))
-from pipeline.orbit_record import read_orbit_record  # noqa: E402
+from b2crig import plyheader  # noqa: E402
 
 from b2crig import b2ctrain as B  # noqa: E402
 from b2crig import cameras as C  # noqa: E402
@@ -52,7 +51,7 @@ def main() -> None:
     run = Path(json.loads((S.parent / "subjects.json").read_text())[S.name])
     out = S / "clips" / a.clip
     out.mkdir(parents=True, exist_ok=True)
-    rec = read_orbit_record(run / "ply" / "scene.ply")
+    rec = plyheader.read_orbit(run / "ply" / "scene.ply")
     K0, target, _ = C.orbit_from_record(rec)
     s = a.height / K0.height
     K = C.Intrinsics(a.width, a.height, K0.fx * s, K0.fy * s, a.width / 2, a.height / 2)

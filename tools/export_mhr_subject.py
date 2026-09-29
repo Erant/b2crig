@@ -6,7 +6,7 @@ head's scale/hand buffers)::
     ~/Projects/sam-3d-body/.venv/bin/python tools/export_mhr_subject.py \
         <run>/ply/scene.ply work/<subject>/mhr.npz
 
-It replays the header's pose parameters (`b2c.mhr.*`, pipeline/ply_meta.py)
+It replays the header's pose parameters (`b2c.mhr.*`, b2crig/plyheader.py)
 through b2crunner's `build_mhr_head`, and keeps the one tensor the TorchScript
 `mhr_model.pt` actually consumes: the full `model_params` row (global trans x10,
 global rot, 130 body params with the hand PCA already expanded into their
@@ -27,9 +27,9 @@ import torch
 
 B2CRUNNER = Path.home() / "Projects" / "b2crunner"
 SAM3DBODY = Path.home() / "Projects" / "sam-3d-body"
-sys.path[:0] = [str(B2CRUNNER), str(SAM3DBODY)]
+sys.path[:0] = [str(Path(__file__).resolve().parents[1]), str(B2CRUNNER), str(SAM3DBODY)]
 
-from pipeline.ply_meta import parse_body_comments, read_comments  # noqa: E402
+from b2crig import plyheader  # noqa: E402
 from pipeline.steps.head_fit import FLIP, build_mhr_head, rig_binding_data  # noqa: E402
 
 REPO = "facebook/sam-3d-body-dinov3"
@@ -42,7 +42,7 @@ def main() -> None:
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
 
-    body = parse_body_comments(read_comments(args.ply))
+    body = plyheader.read_body(args.ply)
     pose = body["pose_params"]
     wfr = body["world_from_raw"]
     scale = float(np.asarray(wfr["scale"]).reshape(-1)[0])

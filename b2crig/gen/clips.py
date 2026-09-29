@@ -11,24 +11,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
-import sys
 from pathlib import Path
 
 import numpy as np
 import torch
 
-sys.path.insert(0, str(Path.home() / "Projects" / "b2crunner"))
-from pipeline.orbit_record import read_orbit_record  # noqa: E402
 
 from .. import b2ctrain as B  # noqa: E402
 from .. import cameras as C  # noqa: E402
+from .. import plyheader  # noqa: E402
 from ..io.splat import LOOSE_CANDIDATES  # noqa: E402
 from ..motion import procedural  # noqa: E402
 from ..rig.mhr import MHRBody  # noqa: E402
 from ..rig import layered  # noqa: E402
 
-WAN_PYTHON = Path.home() / "Projects" / "b2crunner" / "pipeline" / "envs" / "wan22" / "venv" / "bin" / "python"
+# b2crunner's venvs run the steps b2crig borrows (WAN, the control drawings) as separate processes
+B2CRUNNER = Path(os.environ.get("B2CRUNNER", Path.home() / "Projects" / "b2crunner"))
+WAN_PYTHON = B2CRUNNER / "pipeline" / "envs" / "wan22" / "venv" / "bin" / "python"
 TOOLS = Path(__file__).resolve().parents[2] / "tools"
 
 PROMPT = (
@@ -134,7 +135,7 @@ def build(subject: Path, run: Path, motion: str, out: Path, *, n_frames: int = 8
     `prompt`: replaces the whole PROMPT (its {motion} is still filled)."""
     out.mkdir(parents=True, exist_ok=True)
     ply = Path(splat) if splat else run / "ply" / "scene.ply"
-    rec = read_orbit_record(run / "ply" / "scene.ply")
+    rec = plyheader.read_orbit(run / "ply" / "scene.ply")
     K, target, radius0 = C.orbit_from_record(rec)
     s = width / K.width
     K = C.Intrinsics(width, height, K.fx * s, K.fy * height / K.height, K.cx * s, K.cy * height / K.height)
@@ -291,7 +292,7 @@ def build(subject: Path, run: Path, motion: str, out: Path, *, n_frames: int = 8
     (out / "wan.json").write_text(json.dumps(wan, indent=1, ensure_ascii=False))
 
 
-B2CRUNNER_PYTHON = Path.home() / "Projects" / "b2crunner" / ".venv" / "bin" / "python"
+B2CRUNNER_PYTHON = B2CRUNNER / ".venv" / "bin" / "python"
 MHR70 = Path(__file__).resolve().parents[1] / "rig" / "mhr70_mapping.npy"
 
 

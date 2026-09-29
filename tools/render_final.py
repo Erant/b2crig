@@ -21,8 +21,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path.home() / "Projects" / "b2crunner"))
-from pipeline.orbit_record import read_orbit_record  # noqa: E402
+from b2crig import plyheader  # noqa: E402
 
 from b2crig import b2ctrain as B  # noqa: E402
 from b2crig import cameras as C  # noqa: E402
@@ -61,7 +60,7 @@ names = [f"{i:04d}" for i in range(T)]
 B.write_cage(a.out / "cage.b2ccage", layered.cage_layers(body, lay), posed, names)
 
 try:
-    K0, target0, _ = C.orbit_from_record(read_orbit_record(run / "ply" / "scene.ply"))
+    K0, target0, _ = C.orbit_from_record(plyheader.read_orbit(run / "ply" / "scene.ply"))
 except ValueError:   # no b2c.orbit header (the run died before embed_orbit_record; tools/recover_body.py)
     K0, target0, _ = C.orbit_from_colmap(run / "colmap")
 s = a.height / K0.height

@@ -9,18 +9,16 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 import torch
 
-sys.path.insert(0, str(Path.home() / "Projects" / "b2crunner"))
-from pipeline.orbit_record import read_orbit_record  # noqa: E402
 
 from .. import b2ctrain as B  # noqa: E402
 from .. import cameras as C  # noqa: E402
+from .. import plyheader  # noqa: E402
 from ..motion import procedural  # noqa: E402
 from ..rig import layered  # noqa: E402
 from ..rig.mhr import MHRBody  # noqa: E402
@@ -44,7 +42,7 @@ def main() -> None:
     a.out.mkdir(parents=True, exist_ok=True)
     run = Path(json.loads((a.subject.parent / "subjects.json").read_text())[a.subject.name])
     ply = run / "ply" / "scene.ply"
-    K, target, radius = C.orbit_from_record(read_orbit_record(ply))
+    K, target, radius = C.orbit_from_record(plyheader.read_orbit(ply))
     s = a.width / K.width
     K = C.Intrinsics(a.width, a.height, K.fx * s, K.fy * a.height / K.height, K.cx * s, K.cy * a.height / K.height)
     names = [f"{i:04d}" for i in range(a.frames)]
