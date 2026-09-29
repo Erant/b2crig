@@ -26,7 +26,7 @@ ap.add_argument("clip", type=Path)
 ap.add_argument("--iters", type=int, default=6000)
 ap.add_argument("--repeat", type=int, default=2, help="list each reveal frame this often (the capture has ~160 views)")
 ap.add_argument("--tag", default="")
-ap.add_argument("--frames", default="wan", help="the reveal frames' folder, e.g. wan_1080 (tools/upscale_clip.py); alpha and "
+ap.add_argument("--frames", default="wan", help="the reveal frames' folder, e.g. wan_1080 (b2crunner's tools/upscale_clip); alpha and "
                 "labels come from the clip's seg, resized, and camera 2 is scaled to the frames")
 argv = sys.argv[1:]
 extra = argv[argv.index("--") + 1:] if "--" in argv else []

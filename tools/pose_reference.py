@@ -22,7 +22,6 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-B2CRUNNER_PYTHON = Path(os.environ.get("B2CRUNNER", Path.home() / "Projects" / "b2crunner")) / ".venv" / "bin" / "python"
 M_HAND = {"r": {"wrist": 42, "index": 56, "pinky": 44}, "l": {"wrist": 78, "index": 92, "pinky": 80}}
 
 
@@ -154,7 +153,9 @@ def main() -> None:
         render(a); return
     posed = a.out.with_suffix(".posed.npz")
     np.savez(posed, **solve(a))
-    subprocess.run([str(B2CRUNNER_PYTHON), __file__, a.out, "--posed", str(posed), "--width", str(a.width), "--height",
+    sys.path.insert(0, str(ROOT))
+    from b2crig.b2crunner import MAIN_PYTHON
+    subprocess.run([str(MAIN_PYTHON), __file__, a.out, "--posed", str(posed), "--width", str(a.width), "--height",
                     str(a.height), "--fill", str(a.fill), "--mesh-bg", a.mesh_bg, "--mesh-color", a.mesh_color, "--layout", a.layout], check=True)
 
 

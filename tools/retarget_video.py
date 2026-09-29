@@ -1,4 +1,4 @@
-"""Retarget a SAM-3D-Body video fit (tools/video_fit.py) onto a subject, with foot-contact cleanup -> motion npz.
+"""Retarget a SAM-3D-Body video fit (b2crunner's tools/video_fit) onto a subject, with foot-contact cleanup -> motion npz.
 
     .venv/bin/python tools/retarget_video.py work/<subject> CLIP OUT.npz [--fps-out 30] [--smooth 1.5] [--device cpu]
 

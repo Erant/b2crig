@@ -1,7 +1,7 @@
 """Pose a subject's MHR body in the splat's world frame.
 
 Drives the TorchScript `mhr_model.pt` directly with the `model_params` row that
-`tools/export_mhr_subject.py` exported (see its docstring for the layout). A
+b2crunner's `tools/export_mhr_subject` exported (docs/tools.md there has the layout). A
 motion edits the global and body slots; the hand slots keep the subject's
 canonical hands, and the 68 scales never change.
 

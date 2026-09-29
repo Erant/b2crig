@@ -61,7 +61,7 @@ B.write_cage(a.out / "cage.b2ccage", layered.cage_layers(body, lay), posed, name
 
 try:
     K0, target0, _ = C.orbit_from_record(plyheader.read_orbit(run / "ply" / "scene.ply"))
-except ValueError:   # no b2c.orbit header (the run died before embed_orbit_record; tools/recover_body.py)
+except ValueError:   # no b2c.orbit header (the run died before embed_orbit_record; b2crunner's tools/recover_body)
     K0, target0, _ = C.orbit_from_colmap(run / "colmap")
 s = a.height / K0.height
 K = C.Intrinsics(a.width, a.height, K0.fx * s, K0.fy * s, a.width / 2, a.height / 2)

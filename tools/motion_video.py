@@ -1,11 +1,11 @@
 """A WAN clip that INVENTS the motion: frame 0 is the subject's canonical render (kept), every other frame is free
 (grey control, mask 255) under a prompt describing the action. The result is a natural-looking motion of this very
-character, which tools/video_fit.py turns into MHR poses (SAM-3D-Body) and tools/retarget_video.py into a motion file.
+character, which b2crunner's tools/video_fit turns into MHR poses (SAM-3D-Body) and tools/retarget_video.py into a motion file.
 
     .venv/bin/python tools/motion_video.py work/<subject> CLIP_ID --action "..." [--az 20 --el 4 --radius 4.2]
         [--seed 0] [--width 720 --height 1280] [--frames 81] [--first PNG]
 
-Static camera. Then run WAN on it (clip_queue does, or tools/wan_clip.py in the wan22 venv) and tools/seg_clip.py.
+Static camera. Then run WAN on it (clip_queue does, or b2crunner's tools/wan_clip) and its tools/seg_clip.
 `--first`: use this image as the kept frame instead of the canonical render (to chain clips: the last frame of the
 previous one).
 """

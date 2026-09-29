@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 from pathlib import Path
 
@@ -21,15 +20,13 @@ import torch
 
 from .. import b2ctrain as B  # noqa: E402
 from .. import cameras as C  # noqa: E402
+from .. import b2crunner as R  # noqa: E402
 from .. import plyheader  # noqa: E402
 from ..io.splat import LOOSE_CANDIDATES  # noqa: E402
 from ..motion import procedural  # noqa: E402
 from ..rig.mhr import MHRBody  # noqa: E402
 from ..rig import layered  # noqa: E402
 
-# b2crunner's venvs run the steps b2crig borrows (WAN, the control drawings) as separate processes
-B2CRUNNER = Path(os.environ.get("B2CRUNNER", Path.home() / "Projects" / "b2crunner"))
-WAN_PYTHON = B2CRUNNER / "pipeline" / "envs" / "wan22" / "venv" / "bin" / "python"
 TOOLS = Path(__file__).resolve().parents[2] / "tools"
 
 PROMPT = (
@@ -108,7 +105,7 @@ def build(subject: Path, run: Path, motion: str, out: Path, *, n_frames: int = 8
           stretch_grey: float = 1.35, grey_dilate: int = 4, grey_fill: str = "grey", background=(0.5, 0.5, 0.5),
           local_mask: bool = False, rotate_grey: float = 30.0, stretch_mode: str = "area") -> None:
     """`reference`: WAN's identity reference - "front" (the run's front.png) or "face" (<subject>/face_ref.png,
-    tools/face_reference.py: a face crop, better for close-ups).
+    b2crunner's tools/face_reference: a face crop, better for close-ups).
     `target_joint` / `radius` / `target_offset`: orbit that joint's canonical position (plus the offset, metres) at that
     distance instead of the subject's own orbit - e.g. a face close-up ("head", 0.5, (0, 0.05, 0)).
     `elevation_end`: a helical orbit from `elevation` to it (default: circular at `elevation`).
@@ -292,7 +289,6 @@ def build(subject: Path, run: Path, motion: str, out: Path, *, n_frames: int = 8
     (out / "wan.json").write_text(json.dumps(wan, indent=1, ensure_ascii=False))
 
 
-B2CRUNNER_PYTHON = B2CRUNNER / ".venv" / "bin" / "python"
 
 
 def draw_frames(body: MHRBody, mfile, params, expr, gtrans, out: Path, n_frames: int) -> None:
@@ -310,7 +306,7 @@ def draw_frames(body: MHRBody, mfile, params, expr, gtrans, out: Path, n_frames:
     np.savez(out / "posed_body.npz", verts=np.concatenate(V).astype(np.float32), faces=body.faces,
              kps=np.concatenate(P70).astype(np.float32))
     import subprocess
-    subprocess.run([str(B2CRUNNER_PYTHON), str(TOOLS / "draw_control.py"), str(out / "posed_body.npz"),
+    subprocess.run([str(R.MAIN_PYTHON), str(TOOLS / "draw_control.py"), str(out / "posed_body.npz"),
                     str(out / "cameras.json"), str(out / "drawing")], check=True, stdout=subprocess.DEVNULL)
 
 
@@ -331,8 +327,7 @@ def main() -> None:
     build(a.subject, a.run, a.motion, a.out, n_frames=a.frames, elevation=a.elevation, sweep=a.sweep,
           width=a.width, height=a.height, loose_only=a.loose_only)
     if a.wan:
-        import subprocess
-        subprocess.run([str(WAN_PYTHON), str(TOOLS / "wan_clip.py"), str(a.out)], check=True)
+        R.tool("wan_clip", a.out)
 
 
 if __name__ == "__main__":

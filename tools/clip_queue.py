@@ -23,6 +23,7 @@ from b2crig.gen import clips  # noqa: E402
 from b2crig.prep import build_dataset  # noqa: E402
 from b2crig import evaluate  # noqa: E402
 from b2crig import b2ctrain as B  # noqa: E402
+from b2crig import b2crunner  # noqa: E402
 
 GPU_LOCK = ROOT / "work" / "gpu.lock"   # held around the big-VRAM stages; side jobs: flock work/gpu.lock CMD
 
@@ -47,14 +48,12 @@ def run_spec(spec: dict) -> None:
             import torch
             torch.cuda.empty_cache()   # WAN needs all of the 12 GB card; this process keeps only its context
         with gpu_lock(), open(clip / "wan_log.txt", "w") as log:
-            subprocess.run([str(clips.WAN_PYTHON), str(ROOT / "tools" / "wan_clip.py"), str(clip)], check=True,
-                           stdout=log, stderr=subprocess.STDOUT,
+            b2crunner.tool("wan_clip", clip, stdout=log, stderr=subprocess.STDOUT,
                            env={**__import__("os").environ, "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"})
     t1 = time.time()
     if not (clip / "seg").exists():
         with gpu_lock():
-            subprocess.run([str(clips.WAN_PYTHON), str(ROOT / "tools" / "seg_clip.py"), str(clip)], check=True,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            b2crunner.tool("seg_clip", clip, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     build_dataset(clip)
     if not spec.get("fit", True):   # WAN frames + seg + dataset only (for cage_train); no per-clip fit-cage
         (clip / "done.json").write_text(json.dumps({"wan_s": t1 - t0}))

@@ -1,4 +1,4 @@
-"""Re-fit a WAN clip's performance: the pose WAN actually drew (SAM-3D-Body, tools/video_fit.py) instead of the pose
+"""Re-fit a WAN clip's performance: the pose WAN actually drew (SAM-3D-Body, b2crunner's tools/video_fit) instead of the pose
 the clip was built from -> CLIP/refit_motion.npz and CLIP/cage_refit.b2ccage (the splat posed like the WAN frames).
 
     .venv/bin/python tools/refit_wan.py CLIP_DIR [--iters 400] [--no-cleanup]

@@ -38,7 +38,7 @@ ap.add_argument("--repeat", type=int, default=1)
 ap.add_argument("--tag", default="cage_train")
 ap.add_argument("--init", type=Path, help="start from this splat instead of the run's scene.ply (a warm start)")
 ap.add_argument("--capture-repeat", type=int, default=1, help="list every capture view this often (keeps its weight up as clips are added)")
-ap.add_argument("--frames", default="wan", help="train clips' frame folder, e.g. wan_1080 (tools/upscale_clip.py); clips "
+ap.add_argument("--frames", default="wan", help="train clips' frame folder, e.g. wan_1080 (b2crunner's tools/upscale_clip); clips "
                 "without it use their own frames")
 ap.add_argument("--anchor-size", type=int, default=512, help="face anchor crop size, px")
 ap.add_argument("--anchor-drop", type=float, default=0.0, help="crop centre this far below head+5cm, metres (e.g. 0.12: "

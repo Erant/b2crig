@@ -6,7 +6,7 @@ Per frame of VIEW_CLIP: project the cage vertices it sees into its camera; fit z
 head predicts its scale per image) on the control (LBS) render and on the WAN frame; the control residual is the
 noise floor, the difference dz is WAN's depth change along this view's rays. Then, for each FIT (a clip name
 or a fit dir), correlate its displacement's component along this view's rays with dz on the vertices seen here.
-Needs <clip>/pointmap_{wan,control}.npy (tools/pointmap_clip.py).
+Needs <clip>/pointmap_{wan,control}.npy (b2crunner's tools/pointmap_clip).
 """
 import json
 import sys
