@@ -121,6 +121,30 @@ def rig(subject_glb: Path, S: Path, out: Path, *, splat_ply: Path | None = None,
             "cage_vertices": sum(m["vertexCount"] for m in res.layers), "layers": [m["name"] for m in res.layers]}
 
 
+def render_inputs(subject_glb: Path, clip_glb: Path | None, frame: int, out: Path, *, residual: bool = True
+                  ) -> tuple[Path, Path, dict]:
+    """b2ctrain's inputs for one frame of a clip file (None = the rest pose): the current splat as a trainer PLY and a
+    one-frame .b2ccage (SPEC 7.2 steps 1-2), written to out/. Returns (ply, cage, the rig's render settings)."""
+    doc = b2cgltf.load(subject_glb)
+    cg = GR.cage(doc)
+    V = cg.verts
+    if clip_glb is not None:
+        c = b2cgltf.load(clip_glb)
+        GC.check(doc, c)
+        q, t, _ = GC.channels(c)
+        V = GC.lbs(doc, q[frame:frame + 1], t[frame:frame + 1], cg)[0]
+        e = (c.json["animations"][0].get("extensions") or {}).get(GC.RES)
+        if residual and e:
+            V = V + c.accessor(e["accessor"], normalized=True).reshape(e["frames"], e["vertices"], 3)[frame] * e["scale"]
+    out.mkdir(parents=True, exist_ok=True)
+    write_ply(out / "splat.ply", read.to_trainer_ply_fields(read.splat(doc, read.current_splat(doc))))
+    layers = [B.CageLayer(m["name"], cg.verts[m["vertexOffset"]:m["vertexOffset"] + m["vertexCount"]],
+                          cg.faces[m["faceOffset"]:m["faceOffset"] + m["faceCount"]] - m["vertexOffset"], m["classes"])
+              for m in cg.layers]
+    B.write_cage(out / "frame.b2ccage", layers, V[None], [f"{frame:04d}"])
+    return out / "splat.ply", out / "frame.b2ccage", cg.render
+
+
 def read_body(doc: b2cgltf.Document) -> np.ndarray:
     return doc.accessor(GR.body_primitive(doc)["attributes"]["POSITION"]).astype(np.float64)
 

@@ -65,9 +65,9 @@ b2crig's side of the code is `b2crig/export/gltf.py`. b2cviewer reads these file
 
 ## Grey areas and known issues
 
-- **Two copies of the posing maths.** `b2cviewer/web/rig.js` is a JS port of b2ctrain's `cage.cu` posing and of
-  `cage_app`. b2crig should hand the viewer data, not new posing rules. The viewer lacks stretch fade/fill, `open_*`
-  and dual binding.
+- **Two copies of the posing maths.** `b2cviewer/web/rig.js` is a JS port of b2ctrain's `cage.cu` posing. b2crig
+  hands the viewer data (the b2c glTF files, nothing else), not new posing rules. The viewer lacks the stretch fill,
+  `open_*`, the dual binding and the appearance MLP.
 - **`tools/open_gates.py`** (pair gates `cage_gate_*`) is superseded for `--cage-open`. b2ctrain uses
   `cage_gate_a/_b` only for filler/crease splats and ignores `cage_gate_s`.
 - **`tools/aniso_proto.py`** prototypes a change to b2ctrain's posing maths by pre-deforming a ply. If it becomes a

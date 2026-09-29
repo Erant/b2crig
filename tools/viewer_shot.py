@@ -1,12 +1,13 @@
 """Re-render a b2cviewer screenshot with b2ctrain: the viewer's PNG (S / "⤓ PNG") carries a tEXt chunk "b2cviewer" with
-the loaded splat / cage, the frame shown, the render options and the camera. This renders exactly that view (and the
-same view with other splats) and writes a side-by-side sheet: viewer | b2ctrain | --splat ...
+the subject and clip files loaded, the frame shown, the render options and the camera. This renders exactly that view
+(and the same view with other splats) and writes a side-by-side sheet: viewer | b2ctrain | --splat ...
 
     .venv/bin/python tools/viewer_shot.py [SHOT.png] [--splat PLY ...] [--names a,b] [--out OUT.png] [--extra "..."]
         [--meta]   (just print the embedded JSON)
 
 Without SHOT.png: the newest ~/Downloads/b2cview_*.png. Paths in the metadata are relative to b2crig/work (serve.py's
-root). Prints the frame, the cage and the camera so the view can be reused (e.g. a cameras.json for other tools).
+root). b2ctrain gets the subject file's current splat and the frame's posed cage (export/gltf.py render_inputs, with or
+without the clip's residual as the viewer showed it). Prints the frame and the camera so the view can be reused.
 """
 import argparse
 import json
@@ -22,6 +23,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from b2crig import b2ctrain as B  # noqa: E402
+from b2crig.export.gltf import render_inputs  # noqa: E402
 
 
 def read_meta(png: Path) -> dict:
@@ -49,20 +51,22 @@ m = read_meta(shot)
 if a.meta:
     print(json.dumps(m, indent=1)); sys.exit()
 work = ROOT / "work"
-if not m.get("ply") or not m.get("cage") or str(m["ply"]).startswith("local:"):
+if "subject_file" not in m:
+    raise SystemExit("the shot is from the old viewer (PLY + .b2ccage): re-take it with the glTF viewer")
+if str(m["subject_file"]).startswith("local:") or str(m.get("clip_file") or "").startswith("local:"):
     raise SystemExit("the shot shows dropped local files: pass --splat and render by hand")
-ply, cage = work / m["ply"], work / m["cage"]
 opt = m["options"]
-print(f"{shot.name}: {m['subject']} / {m['run']} / {m['clip']} frame {m['frame']} ({m['frame_name']}), "
-      f"{m['width']}x{m['height']}, camera at {np.round(m['camera']['position'], 3).tolist()}"
-      + (" (clip camera)" if m.get("clip_camera") else ""))
+print(f"{shot.name}: {m['subject']} / {m['clip'] or 'rest pose'} frame {m['frame']}"
+      f"{'' if opt.get('residual', True) else ' (plain skinning)'}, {m['width']}x{m['height']}, "
+      f"camera at {np.round(m['camera']['position'], 3).tolist()}")
 tmp = Path(tempfile.mkdtemp(dir=work))
-(tmp / "cams.json").write_text(json.dumps({"width": m["width"], "height": m["height"], "cameras": [m["camera"]]}))
+ply, cage, _ = render_inputs(work / m["subject_file"], work / m["clip_file"] if m.get("clip_file") else None, m["frame"],
+                             tmp, residual=opt.get("residual", True))
+cam = {**m["camera"], "name": f"{m['frame']:04d}"}   # the name of render_inputs' one cage frame
+(tmp / "cams.json").write_text(json.dumps({"width": m["width"], "height": m["height"], "cameras": [cam]}))
 common = ["--sh-degree", str(opt.get("degree", 3))]
 if opt.get("fade") and opt["fade"][1] > opt["fade"][0] > 0:
     common += ["--cage-fade-start", str(opt["fade"][0]), "--cage-fade-end", str(opt["fade"][1])]
-if opt.get("useApp") and m.get("app"):
-    common += ["--cage-app", str(work / m["app"])]
 bg = tuple(opt.get("bg", [0.5, 0.5, 0.5]))
 cols = [cv2.imread(str(shot))]
 labels = ["viewer"]
@@ -78,7 +82,7 @@ for k, sp in enumerate([ply] + a.splat):
         al = x[..., 3:] / 255
         x = x[..., :3] * al + np.array(bg[::-1]) * 255 * (1 - al)
     cols.append(x.astype(np.uint8))
-    labels.append(names[k] if k < len(names) else ("b2ctrain " + (m["run"] or sp.parent.name) if k == 0 else sp.parent.name + "/" + sp.stem))
+    labels.append(names[k] if k < len(names) else ("b2ctrain" if k == 0 else sp.parent.name + "/" + sp.stem))
 H = min(c.shape[0] for c in cols)
 cols = [cv2.resize(c, (round(c.shape[1] * H / c.shape[0]), H)) for c in cols]
 for c, lb in zip(cols, labels):
