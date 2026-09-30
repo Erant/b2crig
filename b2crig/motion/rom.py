@@ -270,3 +270,25 @@ def collides(joints: np.ndarray, radii: dict, overlap: float = 0.8) -> str | Non
         if d < (1 - overlap) * (radii[s1] + radii[s2]):
             return f"{s1}/{s2}"
     return None
+
+
+# A short showcase through named poses (tools/rig_subject.py's clip): upper-body and trunk poses first, since they read
+# without a root motion; the legs pivot about a fixed pelvis.
+TOUR = ("arms_overhead", "t_pose", "hands_on_hips", "arms_crossed", "flex_biceps", "hands_behind_head", "side_bend",
+        "twist", "look_back", "reach_up_one", "punch", "run_stride")
+
+
+def tour(body0, expr, names=TOUR, fps: float = 30.0, move: float = 0.8, hold: float = 0.5) -> dict:
+    """A motion (motion/io.py npz fields) from the subject's canonical pose through `names` and back: min-jerk
+    blends of the body params, `move` s between poses, each held `hold` s. `body0` [1, 130] and `expr` [1, 72]
+    are the subject's (MHRBody.body0 / .expr)."""
+    import torch
+    keys = [body0] + [to_body(named_poses()[n], body0) for n in names] + [body0]
+    nm, nh = max(1, round(move * fps)), round(hold * fps)
+    s = torch.linspace(0, 1, nm + 1, device=body0.device)[1:, None]
+    s = s ** 3 * (10 - 15 * s + 6 * s ** 2)
+    frames = [keys[0]]
+    for a, b in zip(keys, keys[1:]):
+        frames += [a + (b - a) * s, b.expand(nh, -1)]
+    bp = torch.cat(frames).cpu().numpy().astype(np.float32)
+    return {"body_params": bp, "expr": np.repeat(expr.cpu().numpy().astype(np.float32), len(bp), 0), "fps": fps}

@@ -48,6 +48,12 @@ b2ctrain's binding (`render --export-binding`) and a preview skin (SPEC 5), and 
 `<name>.clip.glb` per motion: skeletal animation plus the residual from plain skinning to b2crig's posed cage (SPEC 6).
 b2crig's side of the code is `b2crig/export/gltf.py`. b2cviewer reads these files.
 
+b2crunner runs b2crig itself behind its "Rig splat" output (b2crunner `steps/rig_subject.py`) through one entry point,
+`tools/rig_subject.py SUBJECT.glb CAPTURE_DIR OUT.glb`: the subject from the file (`b2crig/subject.py`: `mhr.npz` from
+`B2C_mhr`, no sam3dbody env), the default layers, the ROM containment pose set, `split_joints`, the pose containment
+fine-tune, `export_gltf rig --splat` and a `rom_tour` clip. b2crunner only calls it and places the files; which stages
+run and with what settings is decided here.
+
 ## Moved here from b2ctrain on 2026-09-29
 
 - **Pose containment's poses, cameras and interior mask:** `rig/contain.py`. It is a port of what the trainer did:
