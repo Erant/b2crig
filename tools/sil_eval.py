@@ -43,6 +43,8 @@ ap.add_argument("--dilate", type=int, default=5)
 ap.add_argument("--seed", type=int, default=1)
 ap.add_argument("--mesh-ref", action="store_true", help="allowed region = the posed body mesh's silhouette")
 ap.add_argument("--hands", action="store_true", help="hand close-ups (0.3 m across) instead of whole-body views")
+ap.add_argument("--region", choices=["all", "legs", "upper"], default="all", help="score only the splats whose nearest "
+                "canonical body vertex is in the lower 47%% of the body (legs) or above it (upper); the reference splat is cut alike")
 ap.add_argument("--sheet", type=Path, help="worst frame of each clip: reference | splats, outside alpha in red")
 a = ap.parse_args()
 S = a.subject.resolve(); run = Path(json.loads((S.parent / "subjects.json").read_text())[S.name])
@@ -73,6 +75,12 @@ if a.mesh_ref:   # render the hand splats only (the mesh is the reference; hair 
     for i, p in enumerate(a.plys):
         _, jj = tree.query(load(p).xyz); rend[p] = tmp / f"hands_{i}.ply"; save_subset(p, np.flatnonzero(hand_v[jj]), rend[p])
     _, jj = tree.query(load(a.ref).xyz); save_subset(a.ref, np.flatnonzero(hand_v[jj] & (sd >= -a.depth)), src)
+elif a.region != "all":
+    yl = BV[:, 1].min() + 0.47 * (BV[:, 1].max() - BV[:, 1].min()); tree = cKDTree(BV); rend = {}
+    inreg = lambda xyz: (BV[tree.query(xyz)[1], 1] < yl) == (a.region == "legs")
+    for i, p in enumerate(a.plys):
+        rend[p] = tmp / f"reg_{i}.ply"; save_subset(p, np.flatnonzero(inreg(load(p).xyz)), rend[p])
+    save_subset(a.ref, np.flatnonzero((sd >= -a.depth) & inreg(sp.xyz)), src)
 else:
     rend = {p: p for p in a.plys}
 for c in a.clips:
