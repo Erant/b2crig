@@ -77,7 +77,7 @@ def tool(*args):
 
 def prepare():
     subject.mhr_npz(a.subject_glb, S / "mhr.npz")
-    subject.splat_ply(a.subject_glb, run / "ply" / "scene.ply")
+    subject.splat_ply(a.subject_glb, run / "ply" / "scene.ply", S / "mhr.npz")
     from b2crig.rig.layered import stable_faces
     from b2crig.rig.mhr import MHRBody
     np.save(S / "stable_faces.npy", stable_faces(MHRBody(S / "mhr.npz", device=a.device)))   # frozen: every later tool reads it

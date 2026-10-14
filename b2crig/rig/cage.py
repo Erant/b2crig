@@ -49,6 +49,21 @@ LAYER_EXCLUDE = {
 }
 
 
+def reconcile_garment_labels(xyz: np.ndarray, label: np.ndarray, body_V: np.ndarray, region: np.ndarray) -> tuple[np.ndarray, int]:
+    """Segmentation calls a one-piece suit's trousers "upper clothing" (or its torso "lower"). A garment splat sitting on
+    a body region its layer may not cover (LAYER_EXCLUDE) is a mislabel: it takes the other garment's class, so the
+    trouser layer is built from the trousers and the torso layer never grows a sheet over the thighs - whose vertices
+    would copy the nearest *allowed* body vertex's skinning, a finger's. `region` = the dominant named joint per body
+    vertex. Returns (labels, number changed)."""
+    lab = np.rint(label).astype(np.int64)
+    reg = region[cKDTree(body_V).query(xyz)[1]]
+    out = lab.copy()
+    for a, b in (("upper", "lower"), ("lower", "upper")):
+        wrong = np.isin(lab, DEFAULT_LAYERS[a]) & np.isin(reg, LAYER_EXCLUDE[a]) & ~np.isin(reg, LAYER_EXCLUDE[b])
+        out[wrong] = DEFAULT_LAYERS[b][0]
+    return out.astype(label.dtype), int((out != lab).sum())
+
+
 @dataclass
 class SkinnedLayer:
     layer: B.CageLayer

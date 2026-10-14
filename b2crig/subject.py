@@ -92,13 +92,26 @@ def mhr_npz(subject_glb: str | Path, out: str | Path, *, model: str | Path | Non
     return Path(out)
 
 
-def splat_ply(subject_glb: str | Path, out: str | Path) -> Path:
-    """The subject's current splat as a trainer PLY (seg_label / seg_conf kept: build_layers and the binding use them)."""
+def splat_ply(subject_glb: str | Path, out: str | Path, mhr: str | Path | None = None) -> Path:
+    """The subject's current splat as a trainer PLY (seg_label / seg_conf kept: build_layers and the binding use them).
+    With `mhr` (the subject's mhr.npz) garment labels on the wrong body region are corrected first
+    (rig/cage.py reconcile_garment_labels)."""
     from .export.gltf import write_ply
     doc = b2cgltf.load(subject_glb)
     fields = read.to_trainer_ply_fields(read.splat(doc))
     if "seg_label" not in fields:
         raise ValueError(f"{subject_glb}: the splat carries no seg labels (b2crunner's splat_labels setting); the cage "
                          "layers are built from them")
+    if mhr is not None:
+        from .model import data as D
+        from .rig import cage as CG
+        from .rig.mhr import MHRBody
+        body = MHRBody(mhr)
+        d = np.load(mhr)
+        BV = d["verts_world"].astype(float)
+        dom = np.array(D.NAMED)[D.named_influence(body, np.arange(len(BV))).argmax(1)]
+        xyz = np.stack([fields["x"], fields["y"], fields["z"]], 1)
+        fields["seg_label"], n = CG.reconcile_garment_labels(xyz, fields["seg_label"], BV, dom)
+        print(f"seg labels: {n} garment splats on the wrong body region relabelled", flush=True)
     write_ply(Path(out), fields)
     return Path(out)

@@ -14,3 +14,13 @@ def test_far_garment_splats_rebind_to_body():
          "seg_conf": np.ones(4, np.float32)}
     out = _gate_layer_labels(f, [body, upper], 0.5)
     assert list(out["seg_label"]) == [23, 15, 15, 15]   # the leg splats leave the torso layer; the near one stays
+
+
+def test_trousers_labelled_upper_become_lower():
+    from b2crig.rig.cage import reconcile_garment_labels
+    body_V = np.array([[0, 1, 0], [0, -1, 0]], float)             # a torso vertex and a thigh vertex
+    region = np.array(["spine2", "l_hip"])
+    xyz = np.array([[0, 1, 0.03], [0, -1, 0.03], [0, -1, 0.04], [0, -1, 0.05]], float)
+    lab = np.array([23, 23, 1, 13], np.float32)
+    out, n = reconcile_garment_labels(xyz, lab, body_V, region)
+    assert list(out) == [23, 13, 13, 13] and n == 2
