@@ -62,6 +62,15 @@ print(f"{shot.name}: {m['subject']} / {m['clip'] or 'rest pose'} frame {m['frame
 tmp = Path(tempfile.mkdtemp(dir=work))
 ply, cage, _ = render_inputs(work / m["subject_file"], work / m["clip_file"] if m.get("clip_file") else None, m["frame"],
                              tmp, residual=opt.get("residual", True))
+if opt.get("crease"):   # the viewer's crease cull (rig/crease.py): the same splats, dropped from the splat PLY
+    import b2cgltf
+    from plyfile import PlyData, PlyElement
+    from b2crig.rig.crease import subject_crease
+    cv = subject_crease(b2cgltf.load(work / m["subject_file"]))
+    vx = PlyData.read(str(ply))["vertex"]
+    assert len(vx.data) == len(cv), "the crease values and the splat PLY differ in splat count"
+    PlyData([PlyElement.describe(vx.data[cv >= opt["crease"]], "vertex")], text=False).write(str(ply))
+    print(f"crease cull {opt['crease']} m: {int((cv < opt['crease']).sum())} splats dropped")
 cam = {**m["camera"], "name": f"{m['frame']:04d}"}   # the name of render_inputs' one cage frame
 (tmp / "cams.json").write_text(json.dumps({"width": m["width"], "height": m["height"], "cameras": [cam]}))
 common = ["--sh-degree", str(opt.get("degree", 3))]

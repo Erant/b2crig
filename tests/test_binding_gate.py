@@ -24,3 +24,15 @@ def test_trousers_labelled_upper_become_lower():
     lab = np.array([23, 23, 1, 13], np.float32)
     out, n = reconcile_garment_labels(xyz, lab, body_V, region)
     assert list(out) == [23, 13, 13, 13] and n == 2
+
+
+def test_crease_values_need_both_surfaces_facing():
+    from b2crig.rig.crease import NONE, crease_values
+    # an arm triangle at x=+0.05 facing -x and a torso triangle at x=-0.05 facing +x: a slot between two walls
+    V = np.array([[0.05, 0, 0], [0.05, 0.1, 0], [0.05, 0, 0.1], [-0.05, 0, 0], [-0.05, 0, 0.1], [-0.05, 0.1, 0]], float)
+    names = np.array(["l_uparm"] * 3 + ["c_spine1"] * 3)
+    xyz = np.array([[0, 0.03, 0.03], [0.5, 0.03, 0.03]], float)   # in the slot, and far from both walls
+    v = crease_values(xyz, V, np.array([[0, 2, 1], [3, 5, 4]]), names)
+    assert abs(v[0] - np.sqrt(0.05 ** 2 + 0.03 ** 2 + 0.03 ** 2)) < 1e-6 and v[1] == NONE
+    # the torso wall turned the same way as the arm wall (no facing pair): not a crease
+    assert crease_values(xyz, V, np.array([[0, 2, 1], [3, 4, 5]]), names)[0] == NONE
