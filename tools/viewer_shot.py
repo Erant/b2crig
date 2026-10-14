@@ -62,15 +62,19 @@ print(f"{shot.name}: {m['subject']} / {m['clip'] or 'rest pose'} frame {m['frame
 tmp = Path(tempfile.mkdtemp(dir=work))
 ply, cage, _ = render_inputs(work / m["subject_file"], work / m["clip_file"] if m.get("clip_file") else None, m["frame"],
                              tmp, residual=opt.get("residual", True))
-if opt.get("crease"):   # the viewer's crease cull (rig/crease.py): the same splats, dropped from the splat PLY
+if opt.get("crease"):   # the viewer's crease fade (rig/crease.py): opacity x 0 at value <= radius, x 1 at radius + width
     import b2cgltf
     from plyfile import PlyData, PlyElement
     from b2crig.rig.crease import subject_crease
     cv = subject_crease(b2cgltf.load(work / m["subject_file"]))
     vx = PlyData.read(str(ply))["vertex"]
     assert len(vx.data) == len(cv), "the crease values and the splat PLY differ in splat count"
-    PlyData([PlyElement.describe(vx.data[cv >= opt["crease"]], "vertex")], text=False).write(str(ply))
-    print(f"crease cull {opt['crease']} m: {int((cv < opt['crease']).sum())} splats dropped")
+    fa = np.clip((cv - opt["crease"]) / max(opt.get("creaseFade", 0.02), 1e-4), 0, 1)
+    d = vx.data.copy()
+    sg = np.clip(fa / (1 + np.exp(-d["opacity"].astype(np.float64))), 1e-6, 1 - 1e-6)   # the trainer PLY holds the logit
+    d["opacity"] = np.where(fa < 1, np.log(sg / (1 - sg)), d["opacity"])
+    PlyData([PlyElement.describe(d[sg * 255 >= 1], "vertex")], text=False).write(str(ply))   # the viewer culls below 1/255
+    print(f"crease fade {opt['crease']} + {opt.get('creaseFade', 0.02)} m: {int((fa == 0).sum())} splats gone, {int(((fa > 0) & (fa < 1)).sum())} dimmed")
 cam = {**m["camera"], "name": f"{m['frame']:04d}"}   # the name of render_inputs' one cage frame
 (tmp / "cams.json").write_text(json.dumps({"width": m["width"], "height": m["height"], "cameras": [cam]}))
 common = ["--sh-degree", str(opt.get("degree", 3))]
