@@ -66,8 +66,38 @@ def cage_layers(doc: b2cgltf.Document, body, lay) -> tuple[list[GR.Layer], list]
     return out, cl
 
 
+LAYER_REACH = 0.15   # m: how far from its layer a splat can be and still bind to it (offset layers hug the body, max ~12 cm)
+
+
+def _gate_layer_labels(fields: dict, layers: list[GR.Layer], min_conf: float) -> dict:
+    """b2ctrain binds a splat to the nearest face of the layer its segmentation class belongs to, however far that is.
+    A segmenter that calls a one-piece suit's trousers "upper clothing" binds the legs to the torso layer's nearest
+    face, a hand. Splats farther than LAYER_REACH from their layer take the label of their nearest body-class splat."""
+    from scipy.spatial import cKDTree
+    if "seg_label" not in fields:
+        return fields
+    lab = np.asarray(fields["seg_label"]).copy()
+    pos = np.stack([fields["x"], fields["y"], fields["z"]], 1)
+    conf = np.asarray(fields["seg_conf"])
+    body = np.isin(lab, layers[0].classes) & (conf >= min_conf)
+    stray = np.zeros(len(lab), bool)
+    for L in layers[1:]:
+        mine = np.isin(lab, L.classes) & (conf >= min_conf)
+        if not mine.any() or not len(L.faces):
+            continue
+        d, _ = cKDTree(L.verts[np.unique(L.faces)]).query(pos[mine])
+        stray[np.flatnonzero(mine)[d > LAYER_REACH]] = True
+    if not stray.any():
+        return fields
+    _, nn = cKDTree(pos[body]).query(pos[stray])
+    lab[stray] = lab[body][nn]
+    print(f"binding: {int(stray.sum())} splats lie > {LAYER_REACH * 100:.0f} cm from their garment layer; bound to the body instead", flush=True)
+    return {**fields, "seg_label": lab.astype(np.asarray(fields["seg_label"]).dtype)}
+
+
 def b2ctrain_binding(splat_fields: dict, layers: list[GR.Layer], body_verts: np.ndarray, min_conf: float) -> GR.Binding:
     """b2ctrain's own binding (`render --export-binding`) of the splat to the canonical cage."""
+    splat_fields = _gate_layer_labels(splat_fields, layers, min_conf)
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
         write_ply(td / "s.ply", splat_fields)
