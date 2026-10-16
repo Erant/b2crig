@@ -60,10 +60,12 @@ def helical_orbit(target: Sequence[float], radius: float, el0_deg: float, el1_de
 
 
 def write_cameras(path: str | Path, K: Intrinsics, poses: Sequence[tuple[np.ndarray, np.ndarray]],
-                  names: Sequence[str]) -> None:
-    cams = [{"name": nm, "fx": K.fx, "fy": K.fy, "cx": K.cx, "cy": K.cy,
+                  names: Sequence[str], per_view: Sequence[Intrinsics] | None = None) -> None:
+    """`K` for every camera (and the file's size), or `per_view`'s lens for each (one image size, K's)."""
+    lens = per_view or [K] * len(poses)
+    cams = [{"name": nm, "fx": k.fx, "fy": k.fy, "cx": k.cx, "cy": k.cy,
              "rotation": np.asarray(R).tolist(), "position": np.asarray(p).tolist()}
-            for (R, p), nm in zip(poses, names)]
+            for (R, p), nm, k in zip(poses, names, lens)]
     Path(path).write_text(json.dumps({"width": K.width, "height": K.height, "cameras": cams}))
 
 
@@ -71,7 +73,9 @@ def orbit_from_record(record: dict) -> tuple[Intrinsics, np.ndarray, float]:
     """Intrinsics, orbit target and radius of the subject's own orbit cameras (b2c.orbit header)."""
     oc = record["orbit_cameras"]
     W, H = (int(x) for x in np.asarray(oc["image_size"]))
-    fx, fy, cx, cy = (float(x) for x in np.asarray(oc["intrinsics"])[0])
+    # the lens most cameras share: the orbit extension's telephoto frames carry longer ones (b2crunner 24be811)
+    rows, counts = np.unique(np.round(np.asarray(oc["intrinsics"], float), 6), axis=0, return_counts=True)
+    fx, fy, cx, cy = (float(x) for x in rows[int(np.argmax(counts))])
     target = np.asarray(record["extras"]["orbit_target"], float)
     radius = float(np.median(np.linalg.norm(np.asarray(oc["position"]) - target, axis=1)))
     return Intrinsics(W, H, fx, fy, cx, cy), target, radius

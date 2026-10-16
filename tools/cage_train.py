@@ -48,7 +48,7 @@ ap.add_argument("--hollow", type=float, default=0.0, help="b2ctrain's hollow los
 ap.add_argument("--hollow-margin", type=float, default=0.04)
 ap.add_argument("--anchor-clip", default="", help="pose the face anchors by this train clip's frames (named like the "
                 "capture images: a re-canonicalized subject's 'capture' clip)")
-ap.add_argument("--face-anchors", type=int, default=0, help="add 512x512 face crops of the capture views (camera 90+), this "
+ap.add_argument("--face-anchors", type=int, default=0, help="add 512x512 face crops of the capture views (cameras after the capture's), this "
                 "many times each: they hold the capture's face against close-up clips that redraw it")
 ap.add_argument("--contain", nargs="*", default=[], help="pose clips CLIP[:every] for b2ctrain's pose containment loss "
                 "(--pose-contain-weight): their frames join the cage without views; b2ctrain renders the posed splat from "
@@ -76,7 +76,10 @@ out = S / "train" / a.tag; ds = out / "ds"; shutil.rmtree(ds, ignore_errors=True
 for sub in ("images", "labels"):
     (ds / sub).mkdir(parents=True)
 
-cam_lines = ["1 " + " ".join([l for l in (cap / "cameras.txt").read_text().splitlines() if l and not l.startswith("#")][0].split()[1:])]
+# the capture's cameras as they are: one per lens (b2crunner 24be811: the orbit extension's telephoto frames each have
+# their own), every image on its own; the clips' and face anchors' cameras are numbered after them
+cam_lines = [l for l in (cap / "cameras.txt").read_text().splitlines() if l.strip() and not l.startswith("#")]
+next_cid = max(int(l.split()[0]) for l in cam_lines) + 1
 lines = []
 for ln in (cap / "images.txt").read_text().splitlines():
     f = ln.split()
@@ -84,14 +87,14 @@ for ln in (cap / "images.txt").read_text().splitlines():
         continue
     for r in range(a.capture_repeat):
         nm = f[9] if r == 0 else f"{Path(f[9]).stem}__c{r}.png"
-        lines += [" ".join([str(len(lines) // 2 + 1), *f[1:8], "1", nm]), ""]
+        lines += [" ".join([str(len(lines) // 2 + 1), *f[1:9], nm]), ""]
         for sub in ("images", "labels"):
             if (cap / sub / f[9]).exists():
                 (ds / sub / nm).symlink_to((cap / sub / f[9]).resolve())
 if a.face_anchors:
-    from b2crig.visibility import colmap_cams
+    from b2crig.visibility import colmap_lenses
     from b2crig.rig.skeleton import JOINT
-    (W1, H1, fx1, fy1, cx1, cy1), ccams = colmap_cams(cap)
+    lenses = colmap_lenses(cap)[0]
     if a.anchor_clip and (S / "old_canonical_params.npy").exists():   # the capture shows the OLD canonical pose
         import torch
         from b2crig.rig.mhr import MHRBody
@@ -108,6 +111,7 @@ if a.face_anchors:
     for ln in fimgs:
         f = ln.split(); Rw2c = __import__("b2crig.visibility", fromlist=["x"]).qvec_to_R(list(map(float, f[1:5])))
         t = np.array(list(map(float, f[5:8]))); q = Rw2c @ hj + t
+        W1, H1, fx1, fy1, cx1, cy1 = lenses[int(f[8])]
         if q[2] <= 0:
             continue
         u, v = fx1 * q[0] / q[2] + cx1, fy1 * q[1] / q[2] + cy1
@@ -120,7 +124,7 @@ if a.face_anchors:
         im = cv2.imread(str(cap / "images" / f[9]), cv2.IMREAD_UNCHANGED)
         nm0 = f"face__{Path(f[9]).stem}.png"
         cv2.imwrite(str(fd / "images" / nm0), im[y0:y0 + AS, x0:x0 + AS]); cv2.imwrite(str(fd / "labels" / nm0), lab[y0:y0 + AS, x0:x0 + AS])
-        cid = 100 + n_anchor; n_anchor += 1
+        cid = next_cid; next_cid += 1; n_anchor += 1
         cam_lines.append(f"{cid} PINHOLE {AS} {AS} {fx1} {fy1} {cx1 - x0} {cy1 - y0}")
         for r in range(a.face_anchors):
             nm = (f"{a.anchor_clip}__{Path(f[9]).stem}@a{r}.png" if a.anchor_clip else f"face__{Path(f[9]).stem}__r{r}.png")
@@ -153,7 +157,7 @@ for ci, c in enumerate(a.train):
             al = cv2.GaussianBlur((lab > 0).astype(np.float32), (0, 0), 1.5 * sx)
             cv2.imwrite(str(src / "images" / fr.name), np.dstack([cv2.imread(str(fr)), np.clip(al * 255, 0, 255).astype(np.uint8)]))
             cv2.imwrite(str(src / "labels" / fr.name), lab)
-    cid = ci + 2; cam_lines.append(" ".join([str(cid)] + cam[1:]))
+    cid = next_cid; next_cid += 1; cam_lines.append(" ".join([str(cid)] + cam[1:]))
     k_img = -1
     for ln in (clip / "fit_ds" / "images.txt").read_text().splitlines():
         f = ln.split()

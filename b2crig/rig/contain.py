@@ -78,7 +78,7 @@ def contain_cameras(cg: Cage, capture: Path, n: int = 256, res: int = 960, seed:
                     hands: dict | None = None, hand_views: float = 0.0,
                     hand_extent: float = 0.3) -> tuple[C.Intrinsics, list, list[str]]:
     """(intrinsics, [(rotation, position)], names) of `n` containment views; `capture` is the capture's COLMAP dir
-    (its first camera's intrinsics, scaled to `res` on the long side). `hands` (hand_vertices) and `hand_views` > 0:
+    (its orbit lens, colmap_cams', scaled to `res` on the long side). `hands` (hand_vertices) and `hand_views` > 0:
     that share of the views are close-ups of a hand, from `hand_extent` m across (named "<frame>@h<k>")."""
     (W, H, fx, fy, cx, cy), cams = colmap_cams(Path(capture))
     sc = res / max(W, H)

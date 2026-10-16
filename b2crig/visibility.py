@@ -21,17 +21,40 @@ def qvec_to_R(q):
                      [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
 
 
-def colmap_cams(ds: Path):
-    """(W, H, fx, fy, cx, cy), [(R_w2c, t)] of a COLMAP text model with one PINHOLE camera."""
-    p = [ln.split() for ln in (ds / "cameras.txt").read_text().splitlines() if ln and not ln.startswith("#")][0]
-    intr = (int(p[2]), int(p[3]), *map(float, p[4:8]))
-    out = []
+def colmap_lenses(ds: Path) -> tuple[dict[int, tuple], list[tuple[int, np.ndarray, np.ndarray, str]]]:
+    """A COLMAP text model as {camera_id: (W, H, fx, fy, cx, cy)} and [(camera_id, R_w2c, t, name)] per image, in
+    images.txt order. A b2crunner capture writes one PINHOLE camera per lens (since 24be811 the orbit extension's
+    telephoto frames each have their own), so every image's own camera is the only right one for that image."""
+    lenses = {}
+    for ln in (ds / "cameras.txt").read_text().splitlines():
+        p = ln.split()
+        if ln.startswith("#") or len(p) < 8:
+            continue
+        assert p[1] == "PINHOLE", f"{ds}: camera {p[0]} is {p[1]}, not PINHOLE"
+        lenses[int(p[0])] = (int(p[2]), int(p[3]), *map(float, p[4:8]))
+    images = []
     for ln in (ds / "images.txt").read_text().splitlines():
         f = ln.split()
         if ln.startswith("#") or len(f) < 10:
             continue
-        out.append((qvec_to_R(list(map(float, f[1:5]))), np.array(list(map(float, f[5:8])))))
-    return intr, out
+        images.append((int(f[8]), qvec_to_R(list(map(float, f[1:5]))), np.array(list(map(float, f[5:8]))), f[9]))
+    return lenses, images
+
+
+def colmap_cams(ds: Path):
+    """(W, H, fx, fy, cx, cy) of the capture's orbit lens (the one most images share), [(R_w2c, t)] of every image.
+    The lens is for views of our own making (containment, evaluation); a capture image's own lens is
+    colmap_view_intrinsics'."""
+    from collections import Counter
+    lenses, images = colmap_lenses(ds)
+    orbit = Counter(cid for cid, *_ in images).most_common(1)[0][0]
+    return lenses[orbit], [(R, t) for _, R, t, _ in images]
+
+
+def colmap_view_intrinsics(ds: Path) -> list[tuple]:
+    """(W, H, fx, fy, cx, cy) of every image's own camera, in images.txt order (colmap_cams' cameras)."""
+    lenses, images = colmap_lenses(ds)
+    return [lenses[cid] for cid, *_ in images]
 
 
 def json_cams(cameras_json: Path):
@@ -66,7 +89,9 @@ def visible(V: np.ndarray, intr, cam, px: int = 1, target_h: int = 220) -> np.nd
 
 
 def visible_counts(V: np.ndarray, intr, cams, **kw) -> np.ndarray:
-    return np.sum([visible(V, intr, c, **kw) for c in cams], axis=0).astype(np.int32)
+    """int [V]: how many of `cams` see each vertex; `intr` is one lens for all, or a list of one per camera."""
+    per = intr if isinstance(intr, list) else [intr] * len(cams)
+    return np.sum([visible(V, k, c, **kw) for k, c in zip(per, cams)], axis=0).astype(np.int32)
 
 
 def capture_seen(subject: Path, run: Path, body_verts_canon: np.ndarray) -> np.ndarray:
@@ -74,8 +99,8 @@ def capture_seen(subject: Path, run: Path, body_verts_canon: np.ndarray) -> np.n
     f = subject / "seen.npy"
     if f.exists():
         return np.load(f)
-    intr, cams = colmap_cams(run / "colmap")
-    seen = visible_counts(body_verts_canon, intr, cams) >= MIN_VIEWS
+    _, cams = colmap_cams(run / "colmap")
+    seen = visible_counts(body_verts_canon, colmap_view_intrinsics(run / "colmap"), cams) >= MIN_VIEWS
     np.save(f, seen)
     return seen
 
@@ -98,10 +123,12 @@ def unseen_pixels(V: np.ndarray, seen: np.ndarray, intr, cam, radius_px: int = 6
 
 
 def colmap_to_cameras_json(ds: Path, out: Path) -> None:
-    """A COLMAP text model (one PINHOLE camera) as a b2crig cameras.json, named like its images (b2ctrain render
-    --cameras of the capture views, e.g. for --write-evidence)."""
+    """A COLMAP text model as a b2crig cameras.json (each camera with its own image's lens), named like its images
+    (b2ctrain render --cameras of the capture views, e.g. for --write-evidence)."""
     from .cameras import Intrinsics, write_cameras
-    (W, H, fx, fy, cx, cy), cams = colmap_cams(ds)
-    names = [ln.split()[9] for ln in (ds / "images.txt").read_text().splitlines() if not ln.startswith("#") and len(ln.split()) >= 10]
-    poses = [(Rw2c.T @ np.diag([1.0, -1.0, -1.0]), -Rw2c.T @ t) for Rw2c, t in cams]
-    write_cameras(out, Intrinsics(W, H, fx, fy, cx, cy), poses, [Path(n).stem for n in names])
+    lenses, images = colmap_lenses(ds)
+    poses = [(Rw2c.T @ np.diag([1.0, -1.0, -1.0]), -Rw2c.T @ t) for _, Rw2c, t, _ in images]
+    per = [Intrinsics(*lenses[cid]) for cid, *_ in images]
+    sizes = {(k.width, k.height) for k in per}
+    assert len(sizes) == 1, f"{ds}: the images are not one size: {sorted(sizes)}"
+    write_cameras(out, per[0], poses, [Path(n).stem for *_, n in images], per_view=per)
