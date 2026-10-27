@@ -1,9 +1,14 @@
 """Rig a b2crunner subject file in one go: the pipeline's entry point (b2crunner's `rig_subject` step).
 
     .venv/bin/python tools/rig_subject.py SUBJECT.glb CAPTURE_DIR OUT.glb [--work DIR] [--clip rom_tour|none]
+                                          [--views DIR] [--distill]
 
 CAPTURE_DIR is the run's COLMAP dataset (images/, labels/, cameras.txt, images.txt), the views the delivered splat was
-trained on. The flow is the one that gave b24be4's spH16, each stage the tool of the same name:
+trained on. When the delivered splat's last training saw other views too (b2crunner's face detailer: close-up clips
+of the head, with per-view loss weights), `--views` is that training's dataset: the containment fine-tune trains on
+it instead, so it does not pull the splat back to the capture alone, while the capture still places the containment
+views. `--distill` goes further: the fine-tune's targets are the delivered splat's own renders at those views'
+cameras (b2crig/rig/distill.py), so it keeps the splat's colours and only does what the containment loss asks. The flow is the one that gave b24be4's spH16, each stage the tool of the same name:
 
 1. the subject from the file: mhr.npz (b2crig/subject.py), the delivered splat as a trainer PLY, the frozen
    expression-stable faces;
@@ -39,6 +44,10 @@ ap.add_argument("out", type=Path)
 ap.add_argument("--work", type=Path, help="work directory (default: OUT's folder/rig_work)")
 ap.add_argument("--clip", default="rom_tour", help="the clip to export beside OUT ('none': no clip)")
 ap.add_argument("--device", default="cuda")
+ap.add_argument("--views", type=Path, help="the delivered splat's last training dataset, when it is not the capture "
+                "(cage_train --views)")
+ap.add_argument("--distill", action="store_true", help="the fine-tune's targets are the delivered splat's own renders at "
+                "the training views' cameras (cage_train --distill)")
 a = ap.parse_args()
 
 if not os.environ.get("B2CTRAIN") and not (Path.home() / "Projects" / "b2ctrain" / "build" / "b2ctrain").exists() \
@@ -53,6 +62,8 @@ cap = a.capture.resolve()
 for f in ("cameras.txt", "images.txt", "images"):
     if not (cap / f).exists():
         raise SystemExit(f"rig_subject: {cap} has no {f}: not a COLMAP dataset")
+    if a.views and not (a.views / f).exists():
+        raise SystemExit(f"rig_subject: --views {a.views} has no {f}: not a COLMAP dataset")
 work = (a.work or a.out.parent / "rig_work").resolve()
 S, run = work / "subject", work / "run"
 shutil.rmtree(work, ignore_errors=True)
@@ -91,7 +102,9 @@ split = S / "train" / "split.ply"
 split.parent.mkdir(parents=True, exist_ok=True)
 stage("split_joints", lambda: tool("split_joints.py", S, run / "ply" / "scene.ply", split))
 stage("cage_train", lambda: tool("cage_train.py", S, "--init", split, "--contain", "poseset_romh16:1",
-                                 "--contain-hands", "0.3", "--tag", "contain"))
+                                 "--contain-hands", "0.3", "--tag", "contain",
+                                 *(["--views", a.views.resolve()] if a.views else []),
+                                 *(["--distill"] if a.distill else [])))
 trained = S / "train" / "contain" / "scene.ply"
 a.out.parent.mkdir(parents=True, exist_ok=True)
 

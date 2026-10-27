@@ -7,7 +7,9 @@ then score held-out clips old vs new.
 Train clips' cages are concatenated into one cage (frames "<clip>__<frame>", the clips must share the cage layout,
 i.e. be built from the same layers) and every K-th of their frames joins the capture views (listed R times). Scores per
 test clip, rendered through its own cage with the old and the new splat: L1 vs its WAN frames over the figure and over
-the face (Sapiens classes face/lips/teeth/tongue), and the label IoUs.
+the face (Sapiens classes face/lips/teeth/tongue), and the label IoUs. `--views DIR` trains on another COLMAP dataset's
+views than the capture's (with its per-view weights/), the capture still placing the containment views; `--distill`
+trains on the --init splat's own renders at those views' cameras instead of their images.
 """
 import argparse
 import json
@@ -38,6 +40,15 @@ ap.add_argument("--repeat", type=int, default=1)
 ap.add_argument("--tag", default="cage_train")
 ap.add_argument("--init", type=Path, help="start from this splat instead of the run's scene.ply (a warm start)")
 ap.add_argument("--capture-repeat", type=int, default=1, help="list every capture view this often (keeps its weight up as clips are added)")
+ap.add_argument("--views", type=Path, help="train on this COLMAP dataset's views (images/, labels/ and weights/ where a view has "
+                "them) instead of the capture's; the capture stays what the containment views and the face anchors are "
+                "made from. b2crunner's face detailer: the views its last retraining used, close-up clips included")
+ap.add_argument("--distill", action="store_true", help="the training views' targets are the --init splat's own renders at "
+                "their cameras, not their images (b2crig/rig/distill.py): the fine-tune keeps the splat's colours and "
+                "only does what the containment loss asks")
+ap.add_argument("--distill-alpha", default="image", choices=("image", "render"), help="--distill's alpha target: the view "
+                "image's own matte (b2crunner 8180cc: posed leak 0.5 against 0.7 with the render's, hands 551 against 614), "
+                "or the render's")
 ap.add_argument("--frames", default="wan", help="train clips' frame folder, e.g. wan_1080 (b2crunner's tools/upscale_clip); clips "
                 "without it use their own frames")
 ap.add_argument("--anchor-size", type=int, default=512, help="face anchor crop size, px")
@@ -72,25 +83,37 @@ ap.add_argument("--contain-hands", type=float, default=0.0, help="share of the c
 a = ap.parse_args(argv[:argv.index("--")] if "--" in argv else argv)
 assert a.train or a.contain, "nothing to train on: --train and/or --contain"
 S = a.subject.resolve(); run = Path(json.loads((S.parent / "subjects.json").read_text())[S.name]); cap = run / "colmap"
+views = a.views.resolve() if a.views else cap
 out = S / "train" / a.tag; ds = out / "ds"; shutil.rmtree(ds, ignore_errors=True)
-for sub in ("images", "labels"):
+SIDECARS = ("images", "labels", "weights")
+for sub in SIDECARS:
     (ds / sub).mkdir(parents=True)
 
-# the capture's cameras as they are: one per lens (b2crunner 24be811: the orbit extension's telephoto frames each have
-# their own), every image on its own; the clips' and face anchors' cameras are numbered after them
-cam_lines = [l for l in (cap / "cameras.txt").read_text().splitlines() if l.strip() and not l.startswith("#")]
+# the training views' cameras as they are: one per lens (b2crunner 24be811: the orbit extension's telephoto frames each
+# have their own; the face detailer's clips theirs), every image on its own; the clips' and face anchors' cameras are
+# numbered after them. A view's labels / weights are linked when it has them (none: no vote / weight 1).
+cam_lines = [l for l in (views / "cameras.txt").read_text().splitlines() if l.strip() and not l.startswith("#")]
 next_cid = max(int(l.split()[0]) for l in cam_lines) + 1
+src_dir = {sub: views / sub for sub in SIDECARS}
+if a.distill:
+    from b2crig.rig.distill import render_targets
+    src_dir["images"] = out / "distill"
+    shutil.rmtree(src_dir["images"], ignore_errors=True)
+    n_distill = render_targets(views, (a.init or run / "ply" / "scene.ply").resolve(), src_dir["images"], a.distill_alpha)
+    print(f"cage_train: {n_distill} training views' targets rendered from the splat (--distill)")
 lines = []
-for ln in (cap / "images.txt").read_text().splitlines():
+for ln in (views / "images.txt").read_text().splitlines():
     f = ln.split()
     if ln.startswith("#") or len(f) < 10:
         continue
     for r in range(a.capture_repeat):
         nm = f[9] if r == 0 else f"{Path(f[9]).stem}__c{r}.png"
         lines += [" ".join([str(len(lines) // 2 + 1), *f[1:9], nm]), ""]
-        for sub in ("images", "labels"):
-            if (cap / sub / f[9]).exists():
-                (ds / sub / nm).symlink_to((cap / sub / f[9]).resolve())
+        for sub in SIDECARS:
+            if (src_dir[sub] / f[9]).exists():
+                (ds / sub / nm).symlink_to((src_dir[sub] / f[9]).resolve())
+if not any((ds / "weights").iterdir()):
+    (ds / "weights").rmdir()
 if a.face_anchors:
     from b2crig.visibility import colmap_lenses
     from b2crig.rig.skeleton import JOINT
