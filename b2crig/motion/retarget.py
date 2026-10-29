@@ -18,6 +18,8 @@ from .walk import fps_scale
 from ..rig.mhr import MHRBody, quat_xyzw_to_mat
 from ..rig.skeleton import HINGE_MIN, JOINT, ROT, TWISTS, body_index
 
+FINGER_CURL = 0.8   # rad: where ik_to_targets starts MHR's finger flexion slots
+
 
 def contact_targets(body: MHRBody, Jr: np.ndarray, fps: float, v_max: float = 0.35, h_max: float = 0.04,
                     verbose: bool = True) -> tuple[dict, dict, dict]:
@@ -147,6 +149,13 @@ def ik_to_targets(body: MHRBody, dS: torch.Tensor, bones: tuple, Rt: torch.Tenso
         lo, hi = body.param_limits()
         hand_col = torch.as_tensor([int((free_idx == i).nonzero()) for i in hand_body.tolist()], device=dev)
         lo_h, hi_h = lo[hand_body + 6] - b0[0, hand_body], hi[hand_body + 6] - b0[0, hand_body]   # as offsets
+        if x0 is None:
+            # The flexion slots (those that bend to 90 deg) start half-curled. From straight fingers a fist's targets
+            # point ~180 deg away, where the direction loss has no useful gradient, and the IK bent the fingers
+            # backwards onto their extension limits instead (Mixamo punches: fingers 46 deg off, and the hands
+            # turned 70-80 deg chasing them; from half-curled 3.7-3.9). Open hands uncurl from there just as well.
+            flex = hi[hand_body + 6] > 1.5
+            x[:, hand_col[flex]] = FINGER_CURL - b0[0, hand_body[flex]]
     x.requires_grad_(True)
     # Root rotation = exp(delta) R0. (An absolute rotation vector breaks on a turning dancer: it wraps at |w| = pi and
     # is singular near 2 pi, where a 3 deg turn moved it by up to 6 rad; its smoothness term then spun the whole body

@@ -1,12 +1,13 @@
-"""Retarget an AMASS SMPL-X motion (e.g. DanceDB) or a Kimodo SOMA motion onto a subject's MHR body -> motion npz
-(root_R form).
+"""Retarget an AMASS SMPL-X motion (e.g. DanceDB), a Kimodo SOMA motion or a Mixamo FBX onto a subject's MHR body ->
+motion npz (root_R form).
 
     .venv/bin/python tools/retarget_smplx.py work/<subject> SOURCE.npz OUT.npz [--t0 S] [--dur S] [--fps 30]
         [--also-fps 16] [--iters 500] [--smooth 1] [--twist 0.01] [--no-fingers] [--device cuda]
 
-SOURCE is an AMASS SMPL-X file or a Kimodo-SOMA NPZ (`posed_joints` + `global_rot_mats`, b2crig/motion/soma.py).
-1. The source skeleton (SMPL-X FK, b2crig/motion/smplx.py, or Kimodo's joints as they are), Y-up, yawed so the
-   window's mean facing is +Z (the subject's front).
+SOURCE is an AMASS SMPL-X file, a Kimodo-SOMA NPZ (`posed_joints` + `global_rot_mats`, b2crig/motion/soma.py) or a
+Mixamo FBX (b2crig/motion/mixamo.py).
+1. The source skeleton (SMPL-X FK, b2crig/motion/smplx.py; Kimodo's joints as they are; the FBX's bones), Y-up,
+   yawed so the window's mean facing is +Z (the subject's front).
 2. Per-frame IK through the differentiable MHR model (motion/retarget.ik_to_targets): the named rotation DOFs, a
    small correction of the source's root rotation (about the canonical pelvis, applied after the forward) and a
    root translation. Proportion-free targets: bone DIRECTIONS (limbs, hand direction and palm width line, hip and
@@ -14,10 +15,11 @@ SOURCE is an AMASS SMPL-X file or a Kimodo-SOMA NPZ (`posed_joints` + `global_ro
    against MHR's zero pose (both rigs stand upright facing +Z at rest; the limbs differ, T- vs A-pose, so they only
    get directions). The torso, neck and clavicle lines are rest-relative in their parent bone's frame. The root path
    is the mid-hip point, scaled by the rigs' standing hip heights. Twist DOFs are pulled to neutral (--twist), the
-   elbows/knees guarded against hyperextension and the limb capsules kept apart. A source with finger chains (Kimodo
-   SOMA) also drives MHR's fingers: every phalanx direction (knuckle to tip, the thumb from its CMC) within MHR's own
-   finger limits, and the motion animates the hand slots (`hands`). SMPL-X sources have no fingertips, so their
-   fingers keep the subject's canonical hands. tools/motion_audit.py checks the result (mesh damage, limits,
+   elbows/knees guarded against hyperextension and the limb capsules kept apart. A source with finger chains
+   (Kimodo SOMA, Mixamo) also drives MHR's fingers: every phalanx direction (knuckle to tip, the thumb from its CMC)
+   within MHR's own finger limits (their flexion starting half-curled: motion/retarget.FINGER_CURL), and the motion
+   animates the hand slots (`hands`). SMPL-X sources have no fingertips, so their fingers keep the subject's canonical
+   hands. tools/motion_audit.py checks the result (mesh damage, limits,
    collisions, tracking against this source).
 3. Foot-contact clean-up (b2crig/motion/retarget.contact_cleanup).
 `--also-fps 16` also writes OUT_16.npz, resampled for 16 fps WAN clips.
@@ -33,6 +35,7 @@ from scipy.spatial.transform import Rotation, Slerp
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from b2crig.motion import io as MI  # noqa: E402
 from b2crig.motion import smplx as SX  # noqa: E402
+from b2crig.motion import mixamo  # noqa: E402
 from b2crig.motion import soma  # noqa: E402
 from b2crig.motion import rom  # noqa: E402
 from b2crig.motion.retarget import contact_cleanup, ik_to_targets  # noqa: E402
@@ -189,7 +192,9 @@ def solve_ik(body: MHRBody, sk: SX.Skel, iters: int, verbose: bool = True, w_smo
 
 
 def load_source(path: str | Path, fps_out: float, t0: float = 0.0, dur: float | None = None) -> SX.Skel:
-    """An AMASS SMPL-X file or a Kimodo-SOMA NPZ as a source skeleton."""
+    """An AMASS SMPL-X file, a Kimodo-SOMA NPZ or a Mixamo FBX as a source skeleton."""
+    if mixamo.is_mixamo(path):
+        return mixamo.load_mixamo(path, fps_out=fps_out, t0=t0, dur=dur)
     if soma.is_kimodo(path):
         return soma.load_kimodo(path, fps_out=fps_out, t0=t0, dur=dur)
     return SX.load_amass(path, fps_out=fps_out, t0=t0, dur=dur)
@@ -214,7 +219,7 @@ def resample_motion(d: dict, fps_out: float) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("subject", type=Path)
-    ap.add_argument("source", type=Path, help="AMASS SMPL-X npz or Kimodo-SOMA npz")
+    ap.add_argument("source", type=Path, help="AMASS SMPL-X npz, Kimodo-SOMA npz or Mixamo FBX")
     ap.add_argument("out", type=Path)
     ap.add_argument("--t0", type=float, default=0.0)
     ap.add_argument("--dur", type=float, default=None)
