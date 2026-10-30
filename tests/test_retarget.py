@@ -77,3 +77,32 @@ def test_rest_relative_targets_turn_with_the_body(body):
         want = np.einsum("ij,tjk,k->ti", Y0, R, m0)
         ang = np.degrees(np.arccos(np.clip((want * dS[:, i]).sum(-1), -1, 1)))
         assert ang.max() < 0.5, f"bone {i}: target off the rigid turn by {ang.max():.1f} deg"
+
+
+@needs_subject
+@needs_smplx
+def test_feet_stand_like_the_capture(body):
+    """A source standing at rest, yawed through a half turn: each foot's target is the subject's own standing foot
+    (its capture's ankle->ball pitch, the zero pose's heading) yawed alike. Against MHR's zero-pose foot (21-26 deg
+    down) flat-booted subjects stood on their toes (GaussGame, 2026-10-30)."""
+    model = SX.load_model("neutral")
+    rest = model["J_regressor"] @ model["v_template"]
+    th = np.linspace(0, np.pi, 13)
+    R = yaw(th)
+    sk = SX.Skel(joints=np.einsum("tij,kj->tki", R, rest), rots=np.repeat(R[:, None], 55, 1), fps=30.0,
+                 rest_pelvis_height=float(rest[0, 1] - model["v_template"][:, 1].min()), rest_joints=rest)
+    tg = RS.build_targets(body, sk, verbose=False)
+    dS = tg["dS"].cpu().numpy(); ma, mb, _ = (x.cpu().numpy() for x in tg["bones"])
+    with torch.no_grad():
+        Jz = body.pose(torch.zeros(1, 130, device="cuda")).joints[0].cpu().numpy()
+    Y0 = RS.yaw_to_front(sk.rots[:, SX.J["pelvis"]])
+    Jc = body.joints_canon
+    for f in "rl":
+        a, b = JOINT[f"{f}_ankle"], RS.M_TOE[f]
+        i = int(np.flatnonzero((ma == a) & (mb == b))[0])
+        m0 = RS.standing_foot(Jz, Jc, a, b)
+        c = Jc[b] - Jc[a]
+        assert abs(m0[1] - c[1] / np.linalg.norm(c)) < 1e-6   # the capture's pitch
+        want = np.einsum("ij,tjk,k->ti", Y0, R, m0)
+        ang = np.degrees(np.arccos(np.clip((want * dS[:, i]).sum(-1), -1, 1)))
+        assert ang.max() < 0.5, f"{f} foot: target off the standing foot by {ang.max():.1f} deg"

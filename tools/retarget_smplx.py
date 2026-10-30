@@ -13,7 +13,9 @@ Mixamo FBX (b2crig/motion/mixamo.py).
    root translation. Proportion-free targets: bone DIRECTIONS (limbs, hand direction and palm width line, hip and
    shoulder lines, neck, torso, clavicles) plus rest-relative world orientations of the pelvis, chest and head
    against MHR's zero pose (both rigs stand upright facing +Z at rest; the limbs differ, T- vs A-pose, so they only
-   get directions). The torso, neck and clavicle lines are rest-relative in their parent bone's frame. The root path
+   get directions). The torso, neck and clavicle lines are rest-relative in their parent bone's frame; the feet are
+   rest-relative to the subject's own standing foot (its capture's pitch: a flat shoe stands flatter than MHR's
+   zero-pose foot). The root path
    is the mid-hip point, scaled by the rigs' standing hip heights. Twist DOFs are pulled to neutral (--twist), the
    elbows/knees guarded against hyperextension and the limb capsules kept apart. A source with finger chains
    (Kimodo SOMA, Mixamo) also drives MHR's fingers: every phalanx direction (knuckle to tip, the thumb from its CMC)
@@ -99,6 +101,17 @@ def min_rotation(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 ORIENT = [("pelvis", JOINT["pelvis"], 2.0), ("spine3", JOINT["spine3"], 1.0), ("head", JOINT["head"], 1.0)]
 
 
+def standing_foot(Jz: np.ndarray, Jc: np.ndarray, ankle: int, ball: int) -> np.ndarray:
+    """The foot's unit ankle->ball direction standing flat: the zero pose's heading (Jz, facing +Z) at the pitch of
+    the subject's capture (Jc, standing on the floor in its own shoes). MHR's zero-pose foot points 21-26 deg below
+    horizontal; the crew subjects' flat work boots stand at 9-11, fighter1's heeled boots at 21-23 (GaussGame)."""
+    m, c = Jz[ball] - Jz[ankle], Jc[ball] - Jc[ankle]
+    h = m * np.array([1.0, 0.0, 1.0])
+    h /= np.linalg.norm(h)
+    e = np.arcsin(np.clip(c[1] / np.linalg.norm(c), -1, 1))
+    return h * np.cos(e) + np.array([0.0, np.sin(e), 0.0])
+
+
 def yaw_to_front(R: np.ndarray) -> np.ndarray:
     """Rotation about +Y taking the mean horizontal facing (pelvis z axis) of R [T, 3, 3] to +Z."""
     f = R[:, :, 2].mean(0)
@@ -161,6 +174,14 @@ def build_targets(body: MHRBody, sk: SX.Skel, verbose: bool = True, fingers: boo
         Rp = Sr[:, SJ[REST_PARENT[i]]]                               # source parent, rest-relative world rotation
         dl = np.einsum("tji,tj->ti", Rp, dS[:, i])                   # current direction in the parent's rest frame
         dS[:, i] = np.einsum("tij,tjk,k->ti", Rp, min_rotation(d0, dl), m0)
+    # The feet are rest-relative too: the subject's own standing foot (standing_foot) turned by the source ankle's
+    # rotation from its rest, where every source stands flat. As world directions the source's ankle->ball line (a
+    # different landmark, steeper on Mixamo) pitched the foot: fighter1 stood with her heels 5-6 cm up, and against
+    # MHR's zero-pose foot the flat-booted crew stood 12-15 deg on their toes (heels 2.7-4.6 cm up in mx_idle).
+    for f in "rl":
+        i = next(k for k, p in enumerate(pairs) if p[1] == (JOINT[f"{f}_ankle"], M_TOE[f]))
+        m0 = standing_foot(Jc, body.joints_canon, JOINT[f"{f}_ankle"], M_TOE[f])
+        dS[:, i] = Sr[:, SJ[f"{f}_ankle"]] @ m0
     dS = torch.as_tensor(dS, dtype=torch.float32, device=dev)
     # rest-relative orientation targets: R_m(t) = R_s(t) R_m(rest). The rest is MHR's zero pose (upright, like the
     # source's), not the capture canonical: its head/chest tilt (3-18 deg) would be carried into every frame.
