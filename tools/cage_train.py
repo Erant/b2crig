@@ -9,7 +9,8 @@ i.e. be built from the same layers) and every K-th of their frames joins the cap
 test clip, rendered through its own cage with the old and the new splat: L1 vs its WAN frames over the figure and over
 the face (Sapiens classes face/lips/teeth/tongue), and the label IoUs. `--views DIR` trains on another COLMAP dataset's
 views than the capture's (with its per-view weights/), the capture still placing the containment views; `--distill`
-trains on the --init splat's own renders at those views' cameras instead of their images.
+trains on the --init splat's own renders at those views' cameras instead of their images, or on `--teacher`'s (a splat
+LOD level: --init is the merged level, --teacher the full rigged splat it stands in for).
 """
 import argparse
 import json
@@ -46,6 +47,8 @@ ap.add_argument("--views", type=Path, help="train on this COLMAP dataset's views
 ap.add_argument("--distill", action="store_true", help="the training views' targets are the --init splat's own renders at "
                 "their cameras, not their images (b2crig/rig/distill.py): the fine-tune keeps the splat's colours and "
                 "only does what the containment loss asks")
+ap.add_argument("--teacher", type=Path, help="--distill renders its targets from this splat instead of --init (a LOD level: "
+                "--init is the merged level, the teacher the full splat it stands in for)")
 ap.add_argument("--distill-alpha", default="image", choices=("image", "render"), help="--distill's alpha target: the view "
                 "image's own matte (b2crunner 8180cc: posed leak 0.5 against 0.7 with the render's, hands 551 against 614), "
                 "or the render's")
@@ -99,7 +102,7 @@ if a.distill:
     from b2crig.rig.distill import render_targets
     src_dir["images"] = out / "distill"
     shutil.rmtree(src_dir["images"], ignore_errors=True)
-    n_distill = render_targets(views, (a.init or run / "ply" / "scene.ply").resolve(), src_dir["images"], a.distill_alpha)
+    n_distill = render_targets(views, (a.teacher or a.init or run / "ply" / "scene.ply").resolve(), src_dir["images"], a.distill_alpha)
     print(f"cage_train: {n_distill} training views' targets rendered from the splat (--distill)")
 lines = []
 for ln in (views / "images.txt").read_text().splitlines():

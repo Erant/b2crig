@@ -1,7 +1,7 @@
 """Rig a b2crunner subject file in one go: the pipeline's entry point (b2crunner's `rig_subject` step).
 
     .venv/bin/python tools/rig_subject.py SUBJECT.glb CAPTURE_DIR OUT.glb [--work DIR] [--clip rom_tour|none]
-                                          [--views DIR] [--distill]
+                                          [--views DIR] [--distill] [--levels-for RIGGED.glb]
 
 CAPTURE_DIR is the run's COLMAP dataset (images/, labels/, cameras.txt, images.txt), the views the delivered splat was
 trained on. When the delivered splat's last training saw other views too (b2crunner's face detailer: close-up clips
@@ -20,7 +20,14 @@ cameras (b2crig/rig/distill.py), so it keeps the splat's colours and only does w
 6. export_gltf rig --splat: OUT.glb = the subject file with the cage, b2ctrain's binding of the retrained splat and
    the preview skin (SPEC 5);
 7. export_gltf clip: OUT's folder gets <clip>.clip.glb, a tour of the ROM library's named poses (motion/rom.tour),
-   so a player has something to pose it with.
+   so a player has something to pose it with;
+8. levels (export/gltf.levels, SPEC 4.7): LOD levels of the rigged splat, 100k for <= 960 px and 50k for <= 480 px
+   tall, each lod-merged with the cage, fine-tuned under the same containment distilled against the rigged splat,
+   and bound to the cage. Always written.
+
+`--levels-for RIGGED.glb`: a subject rigged earlier (SUBJECT.glb is its unrigged input, OUT gets RIGGED plus levels):
+stages 1-3 rebuild the work directory, the rest are skipped, then stage 8 runs on RIGGED with its own splat as the
+teacher. The rebuilt cage must be RIGGED's.
 
 The work directory holds b2crig's usual subject layout (WORK/subjects.json, WORK/run -> the inputs, WORK/subject);
 by default it is OUT's folder/rig_work and is left for inspection. Prints one JSON report line last.
@@ -48,6 +55,8 @@ ap.add_argument("--views", type=Path, help="the delivered splat's last training 
                 "(cage_train --views)")
 ap.add_argument("--distill", action="store_true", help="the fine-tune's targets are the delivered splat's own renders at "
                 "the training views' cameras (cage_train --distill)")
+ap.add_argument("--levels-for", type=Path, help="only add LOD levels to this subject file rigged earlier (SUBJECT.glb "
+                "is its unrigged input)")
 a = ap.parse_args()
 
 if not os.environ.get("B2CTRAIN") and not (Path.home() / "Projects" / "b2ctrain" / "build" / "b2ctrain").exists() \
@@ -98,6 +107,13 @@ stage("subject", prepare)
 stage("build_layers", lambda: tool("build_layers.py", S))
 stage("pose_library", lambda: tool("pose_library.py", S, "rom:1500", "--hands", "--device", a.device))
 stage("pose_select", lambda: tool("pose_select.py", S, "lib_rom_hands:1", "--k", "16", "--tag", "romh16"))
+if a.levels_for:
+    from b2crig.export import gltf as _g
+    report["levels"] = stage("levels", lambda: _g.levels(a.levels_for.resolve(), S, a.out, views=a.views))
+    report["seconds"] = round(time.time() - t00, 1)
+    report["out"] = str(a.out)
+    print(json.dumps(report, default=str), flush=True)
+    raise SystemExit(0)
 split = S / "train" / "split.ply"
 split.parent.mkdir(parents=True, exist_ok=True)
 stage("split_joints", lambda: tool("split_joints.py", S, run / "ply" / "scene.ply", split))
@@ -132,6 +148,22 @@ if a.clip != "none":
         return gltf.clip(a.out, S, S / "motions" / f"{a.clip}.npz", a.clip, out,
                          subject_uri=os.path.relpath(a.out, out.parent))
     report["clip"] = stage("clip", clip)
+
+
+def levels():
+    from b2crig.export import gltf
+    tmp = a.out.with_suffix(".nolod.glb")
+    a.out.rename(tmp)
+    try:
+        r = gltf.levels(tmp, S, a.out, teacher_ply=trained, views=a.views)
+    except BaseException:
+        tmp.rename(a.out)
+        raise
+    tmp.unlink()
+    return r
+
+
+report["levels"] = stage("levels", levels)
 report["seconds"] = round(time.time() - t00, 1)
 report["out"] = str(a.out)
 print(json.dumps(report, default=str), flush=True)
